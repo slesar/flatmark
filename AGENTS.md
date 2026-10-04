@@ -11,7 +11,22 @@ primary codebase.
 - `board.py`: A Python script used to synchronize `BOARD.md` with the contents of `tickets/`.
 - `VERSION`: File containing the currently installed FlatMark version.
 
-## 2. Usage from Project Root
+## 2. Installation and Upgrades
+
+To install FlatMark into a new project or upgrade an existing installation:
+
+```bash
+# Run from inside the target project directory:
+python3 /path/to/flatmark/install.py
+
+# Or specify the target project path:
+python3 /path/to/flatmark/install.py /path/to/target-project
+```
+
+- **Fresh Install**: Creates the `flatmark/` directory containing `tickets/`, `archive/`, core scripts, and an initial `BOARD.md`.
+- **In-Place Upgrade**: Safe and non-destructive. Updates the system scripts (`board.py`, `new.py`, `AGENTS.md`) and `VERSION`, then automatically rebuilds `BOARD.md`. Existing tickets and archive files are never overwritten or deleted.
+
+## 3. Usage from Project Root
 
 You can interact with the system without leaving the project root:
 
@@ -32,7 +47,7 @@ You can interact with the system without leaving the project root:
   Use your IDE's global search or `grep` to find tickets by ID or keyword across the `tickets/`
   directory.
 
-## 3. Ticket Management Process
+## 4. Ticket Management Process
 
 ### Creating a New Ticket
 
@@ -85,7 +100,7 @@ After any changes to the `tickets/` directory, run the synchronization script:
 python3 flatmark/board.py
 ```
 
-## 4. Best Practices for Agents
+## 5. Best Practices for Agents
 
 - **Reference Tickets in Commits**: Use the ticket ID in your commit messages, e.g., `[#T15] Fix bug`.
 - **Atomic Changes**: Update the ticket file and run `board.py` in the same PR/commit.
