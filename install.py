@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+
+CORE_FILES = ["AGENTS.md", "board.py", "new.py", "VERSION"]
+EXECUTABLE_FILES = {"board.py", "new.py"}
+DEFAULT_RAW_BASE_URL = "https://raw.githubusercontent.com/slesar/flatmark/main"
 
 def read_version(directory):
     version_file = os.path.join(directory, "VERSION")
@@ -14,24 +21,56 @@ def read_version(directory):
             pass
     return None
 
-def install(target_root=None):
+def get_local_source_dir():
+    if "__file__" not in globals() or not __file__ or __file__ == "<stdin>":
+        return None
+    if not os.path.isfile(__file__):
+        return None
+    candidate = os.path.dirname(os.path.abspath(__file__))
+    if all(os.path.isfile(os.path.join(candidate, f)) for f in CORE_FILES):
+        return candidate
+    return None
+
+def fetch_remote_file(filename, base_url=None):
+    if base_url is None:
+        base_url = os.environ.get("FLATMARK_RAW_URL", DEFAULT_RAW_BASE_URL)
+    url = f"{base_url.rstrip('/')}/{filename}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "FlatMark-Installer"})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.read()
+    except urllib.error.URLError as e:
+        print(f"Error: Failed to download {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def install(target_root=None, base_url=None):
     if target_root is None:
         target_root = os.getcwd()
     else:
         target_root = os.path.abspath(target_root)
 
-    source_dir = os.path.dirname(os.path.abspath(__file__))
-    source_version = read_version(source_dir) or "0.1.0"
+    source_dir = get_local_source_dir()
     dest_dir = os.path.join(target_root, "flatmark")
 
     # Safety check: avoid installing into the flatmark repository root as a nested flatmark folder
     # if someone accidentally runs install.py without arguments inside the repo itself.
-    if os.path.abspath(target_root) == source_dir:
+    if source_dir and os.path.abspath(target_root) == source_dir:
         print(f"Warning: Current working directory is the FlatMark source directory ({source_dir}).")
-        confirm = input("Are you sure you want to create a nested 'flatmark/' folder here? (y/N): ").strip().lower()
-        if confirm != 'y':
+        try:
+            confirm = input("Are you sure you want to create a nested 'flatmark/' folder here? (y/N): ").strip().lower()
+        except EOFError:
+            confirm = "n"
+        if confirm != "y":
             print("Installation aborted.")
             return
+
+    remote_files = {}
+    if source_dir:
+        source_version = read_version(source_dir) or "0.1.0"
+    else:
+        for filename in CORE_FILES:
+            remote_files[filename] = fetch_remote_file(filename, base_url=base_url)
+        source_version = remote_files["VERSION"].decode("utf-8").strip() or "0.1.0"
 
     archive_dir = os.path.join(dest_dir, "archive")
     tickets_dir = os.path.join(dest_dir, "tickets")
@@ -48,17 +87,22 @@ def install(target_root=None):
     os.makedirs(archive_dir, exist_ok=True)
     os.makedirs(tickets_dir, exist_ok=True)
 
-    # Core files to copy from source_dir
-    files_to_copy = ["AGENTS.md", "board.py", "new.py", "VERSION"]
-    for filename in files_to_copy:
-        src = os.path.join(source_dir, filename)
+    for filename in CORE_FILES:
         dst = os.path.join(dest_dir, filename)
-        if os.path.exists(src):
-            shutil.copy2(src, dst)
-            print(f"Copied {filename} -> {dst}")
+        if source_dir:
+            src = os.path.join(source_dir, filename)
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+                print(f"Copied {filename} -> {dst}")
+            else:
+                print(f"Error: Required file {src} not found.", file=sys.stderr)
+                sys.exit(1)
         else:
-            print(f"Error: Required file {src} not found.", file=sys.stderr)
-            sys.exit(1)
+            with open(dst, "wb") as f:
+                f.write(remote_files[filename])
+            if filename in EXECUTABLE_FILES:
+                os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            print(f"Downloaded {filename} -> {dst}")
 
     # Run copied board.py to generate/rebuild BOARD.md without code duplication
     target_board_script = os.path.join(dest_dir, "board.py")
@@ -71,8 +115,11 @@ def install(target_root=None):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ["--version", "-v"]:
-        source_dir = os.path.dirname(os.path.abspath(__file__))
-        ver = read_version(source_dir) or "unknown"
+        source_dir = get_local_source_dir()
+        if source_dir:
+            ver = read_version(source_dir) or "unknown"
+        else:
+            ver = fetch_remote_file("VERSION").decode("utf-8").strip() or "unknown"
         print(f"FlatMark Installer v{ver}")
         sys.exit(0)
 

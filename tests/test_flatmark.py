@@ -186,6 +186,24 @@ class TestInstall(unittest.TestCase):
         installed_ver = install.read_version(dest_dir)
         self.assertEqual(source_ver, installed_ver)
 
+    def test_remote_install(self):
+        source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def mock_fetch(filename, base_url=None):
+            with open(os.path.join(source_dir, filename), "rb") as f:
+                return f.read()
+
+        with patch.object(install, "get_local_source_dir", return_value=None), \
+             patch.object(install, "fetch_remote_file", side_effect=mock_fetch):
+            install.install(self.test_root)
+
+        dest_dir = os.path.join(self.test_root, "flatmark")
+        self.assertTrue(os.path.isdir(dest_dir))
+        self.assertTrue(os.path.isfile(os.path.join(dest_dir, "BOARD.md")))
+        self.assertTrue(os.path.isfile(os.path.join(dest_dir, "board.py")))
+        self.assertTrue(os.path.isfile(os.path.join(dest_dir, "new.py")))
+        self.assertTrue(os.access(os.path.join(dest_dir, "board.py"), os.X_OK))
+        self.assertTrue(os.access(os.path.join(dest_dir, "new.py"), os.X_OK))
 
 if __name__ == "__main__":
     unittest.main()

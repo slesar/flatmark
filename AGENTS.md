@@ -16,10 +16,11 @@ primary codebase.
 To install FlatMark into a new project or upgrade an existing installation:
 
 ```bash
-# Run from inside the target project directory:
-python3 /path/to/flatmark/install.py
+# One-liner from inside the target project directory (curl or wget):
+curl -fsSL https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 -
+wget -qO- https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 -
 
-# Or specify the target project path:
+# Or from a local clone of flatmark:
 python3 /path/to/flatmark/install.py /path/to/target-project
 ```
 

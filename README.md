@@ -51,9 +51,27 @@ my-project/
 
 ## Installation & Upgrades
 
-### Fresh Installation
+### Quick Install / Upgrade (One-Liner)
 
-Run `install.py` targeting your project root:
+Run directly from your target project root using `curl` or `wget`:
+
+```bash
+# Using curl:
+curl -fsSL https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 -
+
+# Using wget:
+wget -qO- https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 -
+```
+
+You can also pass a target project path to the one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 - /path/to/my-project
+```
+
+### Local Clone Installation
+
+If you have a local clone of FlatMark, run `install.py` targeting your project root:
 
 ```bash
 # From within the target project directory:
@@ -68,11 +86,7 @@ This creates the `flatmark/` directory with initialized folders (`tickets/`,
 
 ### In-Place Upgrade
 
-Upgrades are completely non-destructive:
-
-```bash
-python3 /path/to/flatmark/install.py /path/to/my-project
-```
+Upgrades are completely non-destructive and use the exact same command (via `curl`/`wget` or local `install.py`).
 
 Existing tickets in `tickets/` and `archive/` are **never** overwritten or
 deleted. Only system scripts (`board.py`, `new.py`, `AGENTS.md`) and `VERSION`
