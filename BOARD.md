@@ -2,7 +2,6 @@
 
 | Ticket | Priority | Blocked by | Status |
 | :--- | :---: | :---: | :--- |
-| [[B3] Pipe character in title breaks board table](tickets/B3.md) | P2 |  | ⏳ Todo |
 | [[B4] Multiple blockers produce a broken link](tickets/B4.md) | P2 |  | ⏳ Todo |
 | [[B5] Blocker links break when blocker is archived](tickets/B5.md) | P2 |  | ⏳ Todo |
 | [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |

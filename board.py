@@ -15,6 +15,19 @@ def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower()
             for text in re.split(r'(\d+)', s)]
 
+def escape_pipes(text):
+    """Escape pipe characters for markdown table compatibility."""
+    if text is None:
+        return ""
+    return re.sub(r'(?<!\\)\|', r'\\|', str(text))
+
+def escape_cell(text):
+    """Normalize whitespace/newlines and escape pipe characters for markdown table cells."""
+    if text is None:
+        return ""
+    text = " ".join(str(text).split())
+    return escape_pipes(text)
+
 # Path logic: ensure it works even when called from project root
 base_dir = os.path.dirname(os.path.abspath(__file__))
 tickets_dir = os.path.join(base_dir, "tickets")
@@ -70,16 +83,18 @@ def update_board():
         # Extract title from the first level 1 header
         title_match = re.search(r"^#\s+(.*)", content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else filename
+        title = escape_cell(title)
 
         expected_id = filename[:-3]
         ticket_id = yaml_data.get("id") or expected_id
         if ticket_id != expected_id:
             print(f"Warning: {filename} has frontmatter id '{ticket_id}' (expected '{expected_id}').", file=sys.stderr)
+        ticket_id = escape_cell(ticket_id)
 
-        status = yaml_data.get("status", "Todo")
-        priority = yaml_data.get("priority", "P2")
-        blocked_by = yaml_data.get("blocked by", "")
-        parent = yaml_data.get("parent", "")
+        status = escape_cell(yaml_data.get("status", "Todo"))
+        priority = escape_cell(yaml_data.get("priority", "P2"))
+        blocked_by = escape_cell(yaml_data.get("blocked by", ""))
+        parent = escape_cell(yaml_data.get("parent", ""))
 
         # Add icon for 'Todo' status if not present
         if "Todo" in status and "⏳" not in status:
@@ -199,7 +214,7 @@ def update_board():
         link = f"tickets/{ticket['filename']}"
         blocked_by = ticket["blocked_by"]
         blocked_link = f"[{blocked_by}](tickets/{blocked_by}.md)" if blocked_by else ""
-        board_lines.append(f"| [{ticket['display_title']}]({link}) | {ticket['priority']} | {blocked_link} | {ticket['status']} |")
+        board_lines.append(f"| [{escape_pipes(ticket['display_title'])}]({link}) | {escape_cell(ticket['priority'])} | {blocked_link} | {escape_cell(ticket['status'])} |")
 
     version = get_version()
     if version != "unknown":

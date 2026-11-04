@@ -52,6 +52,23 @@ Body text.
         # B2: CRLF line endings
         self.assertEqual(board.parse_yaml("---\r\nid: T2\r\nstatus: Todo\r\n---\r\n# Title\r\n"), {"id": "T2", "status": "Todo"})
 
+    def test_escape_pipes(self):
+        # Escapes pipes without altering whitespace or indentation
+        self.assertEqual(board.escape_pipes("   [T1] Parse A | B"), r"   [T1] Parse A \| B")
+        self.assertEqual(board.escape_pipes(r"Already \| escaped"), r"Already \| escaped")
+        self.assertEqual(board.escape_pipes(""), "")
+        self.assertEqual(board.escape_pipes(None), "")
+
+    def test_escape_cell(self):
+        # B3: pipes are escaped and whitespace/newlines are normalized
+        self.assertEqual(board.escape_cell("Hello World"), "Hello World")
+        self.assertEqual(board.escape_cell("Parse A | B"), r"Parse A \| B")
+        self.assertEqual(board.escape_cell("  multiple   spaces  |  new\nlines  "), r"multiple spaces \| new lines")
+        self.assertEqual(board.escape_cell(r"Already \| escaped"), r"Already \| escaped")
+        self.assertEqual(board.escape_cell("| leading and trailing |"), r"\| leading and trailing \|")
+        self.assertEqual(board.escape_cell(""), "")
+        self.assertEqual(board.escape_cell(None), "")
+
 
 class TestBoardGeneration(unittest.TestCase):
     def setUp(self):
@@ -233,6 +250,54 @@ status: Todo
         )
         self.assertNotEqual(proc_new.returncode, 0)
         self.assertIn("Error:", proc_new.stderr)
+
+    def test_pipe_and_whitespace_in_title_and_status(self):
+        # B3: pipe in title and status must be escaped to avoid breaking the markdown table
+        import re
+
+        t1_path = os.path.join(self.tickets_dir, "T1.md")
+        with open(t1_path, "w", encoding="utf-8") as f:
+            f.write("""---
+id: T1
+priority:   P1  
+status: In Progress | Blocked
+---
+#   Parse A | B  
+""")
+
+        t2_path = os.path.join(self.tickets_dir, "T2.md")
+        with open(t2_path, "w", encoding="utf-8") as f:
+            f.write("""---
+id: T2
+priority: P2
+status: Todo | Waiting
+parent: T1
+---
+#   Child | Ticket   \r
+""")
+
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path):
+            board.update_board()
+
+        with open(self.board_path, "r", encoding="utf-8") as f:
+            board_text = f.read()
+
+        # Check that pipes are escaped in display titles and statuses
+        self.assertIn(r"[T1] Parse A \| B", board_text)
+        self.assertIn(r"In Progress \| Blocked", board_text)
+        self.assertIn(r"└── [T2] Child \| Ticket", board_text)
+        self.assertIn(r"⏳ Todo \| Waiting", board_text)
+
+        # Verify that all table data rows have exactly 4 columns
+        for line in board_text.splitlines():
+            line = line.strip()
+            if line.startswith("|") and not line.startswith("| :---"):
+                # Split row by unescaped pipe
+                cells = [c.strip() for c in re.split(r'(?<!\\)\|', line)[1:-1]]
+                if cells and cells[0] != "Ticket":  # skip header
+                    self.assertEqual(len(cells), 4, f"Row should have 4 cells: {line}")
 
 
 class TestNewTicket(unittest.TestCase):
