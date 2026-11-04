@@ -187,6 +187,15 @@ FlatMark includes [`AGENTS.md`](AGENTS.md), which is designed to be fed
 directly into AI context (or referenced in rules like `.cursorrules`,
 `CLAUDE.md`, or system prompts).
 
+- **Root Pointer for Discoverability**: Add a one-line reference to your
+  project-root `AGENTS.md` or `CLAUDE.md`:
+  `See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules.`
+- **Custom Rules with `AGENTS.local.md`**: For project-specific conventions,
+  create `flatmark/AGENTS.local.md`, which is guaranteed never to be overwritten
+  by upgrades.
+- **Explicit Workflow**: Agents follow: `pick ticket` → `set In Progress` →
+  `implement` → `verify criteria` → `set Done` & move to `archive/` →
+  `run board.py`.
 - **Atomic Changes**: Commit ticket state updates and `BOARD.md`
   synchronization together with the code changes.
 - **Traceability**: Reference ticket IDs in commit messages (e.g.,

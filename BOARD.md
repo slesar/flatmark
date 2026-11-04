@@ -8,7 +8,6 @@
 | [[B10] new.py may overwrite an existing ticket file](tickets/B10.md) | P2 |  | ⏳ Todo |
 | [[B11] install.py silently creates non-existent target directory](tickets/B11.md) | P3 |  | ⏳ Todo |
 | [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |
-| [[D2] Improve AGENTS.md: schema, workflow, discoverability](tickets/D2.md) | P1 |  | ⏳ Todo |
 | [[F1] Prevent ticket ID collisions across parallel agents and branches](tickets/F1.md) | P1 |  | ⏳ Todo |
 | [[F2] Avoid BOARD.md merge conflicts and add staleness check](tickets/F2.md) | P1 | [T3](tickets/T3.md) | ⏳ Todo |
 | [[F3] Unified flatmark CLI with agent-friendly verbs](tickets/F3.md) | P2 | [T3](tickets/T3.md) | ⏳ Todo |

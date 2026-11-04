@@ -43,6 +43,49 @@ def fetch_remote_file(filename, base_url=None):
         print(f"Error: Failed to download {url}: {e}", file=sys.stderr)
         sys.exit(1)
 
+def check_agent_discoverability(target_root, dest_dir):
+    pointer_line = "See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules, frontmatter schema, and agent workflow."
+    root_agent_candidates = ["AGENTS.md", "CLAUDE.md", ".cursorrules", ".windsurfrules"]
+    found_candidates = []
+
+    for candidate in root_agent_candidates:
+        candidate_path = os.path.join(target_root, candidate)
+        if os.path.isfile(candidate_path) and os.path.abspath(candidate_path) != os.path.abspath(os.path.join(dest_dir, "AGENTS.md")):
+            found_candidates.append((candidate, candidate_path))
+
+    added = []
+    for candidate, candidate_path in found_candidates:
+        try:
+            with open(candidate_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "flatmark/AGENTS.md" in content:
+                continue
+
+            should_add = False
+            if sys.stdin.isatty():
+                try:
+                    resp = input(f"Found {candidate} in project root. Add FlatMark reference pointer? (y/N): ").strip().lower()
+                    should_add = (resp == "y")
+                except EOFError:
+                    should_add = False
+
+            if should_add:
+                with open(candidate_path, "a", encoding="utf-8") as f:
+                    if not content.endswith("\n"):
+                        f.write("\n")
+                    f.write(f"\n<!-- FlatMark Ticket Management -->\n{pointer_line}\n")
+                added.append(candidate)
+                print(f"Added FlatMark pointer -> {candidate_path}")
+        except OSError:
+            pass
+
+    print("\nAI Agent Discoverability:")
+    if added:
+        print(f"  Added FlatMark reference pointer to: {', '.join(added)}")
+    else:
+        print("  To ensure AI agents discover FlatMark, add this pointer to your project root AGENTS.md or CLAUDE.md:")
+        print(f"  {pointer_line}")
+
 def install(target_root=None, base_url=None):
     if target_root is None:
         target_root = os.getcwd()
@@ -108,10 +151,16 @@ def install(target_root=None, base_url=None):
     target_board_script = os.path.join(dest_dir, "board.py")
     subprocess.run([sys.executable, target_board_script], check=True)
 
+    local_agents = os.path.join(dest_dir, "AGENTS.local.md")
+    if os.path.isfile(local_agents):
+        print(f"Preserved custom agent rules in {local_agents}")
+
     print(f"\nFlatMark v{source_version} installed successfully!")
     print("Usage from project root:")
     print("  python3 flatmark/new.py [T|B|F|S|R|D] \"Ticket Title\"")
     print("  python3 flatmark/board.py")
+
+    check_agent_discoverability(target_root, dest_dir)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ["--version", "-v"]:

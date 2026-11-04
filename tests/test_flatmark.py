@@ -379,5 +379,68 @@ class TestInstall(unittest.TestCase):
         self.assertTrue(os.access(os.path.join(dest_dir, "board.py"), os.X_OK))
         self.assertTrue(os.access(os.path.join(dest_dir, "new.py"), os.X_OK))
 
+    def test_discoverability_pointer_added_interactively(self):
+        # D2: installer offers to add pointer to project root AGENTS.md / CLAUDE.md
+        root_agent = os.path.join(self.test_root, "AGENTS.md")
+        with open(root_agent, "w", encoding="utf-8") as f:
+            f.write("# Project Root Guidelines\n")
+
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="y"):
+            install.install(self.test_root)
+
+        with open(root_agent, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("See [flatmark/AGENTS.md](flatmark/AGENTS.md)", content)
+
+    def test_customization_preserves_agents_local(self):
+        # D2: upgrades must never overwrite or delete flatmark/AGENTS.local.md
+        install.install(self.test_root)
+        dest_dir = os.path.join(self.test_root, "flatmark")
+        local_rules_path = os.path.join(dest_dir, "AGENTS.local.md")
+
+        with open(local_rules_path, "w", encoding="utf-8") as f:
+            f.write("# Custom Project Rules\nNever overwrite me!\n")
+
+        # Upgrade/re-install
+        install.install(self.test_root)
+
+        self.assertTrue(os.path.isfile(local_rules_path))
+        with open(local_rules_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertEqual(content, "# Custom Project Rules\nNever overwrite me!\n")
+
+
+class TestAgentsDoc(unittest.TestCase):
+    def test_agents_doc_content(self):
+        # D2: AGENTS.md schema table, workflow checklist, discoverability, AGENTS.local.md
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        agents_path = os.path.join(repo_root, "AGENTS.md")
+
+        self.assertTrue(os.path.isfile(agents_path))
+        with open(agents_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Schema table
+        self.assertIn("| Field | Required | Allowed Values | Default | Description |", content)
+        self.assertIn("`id`", content)
+        self.assertIn("`priority`", content)
+        self.assertIn("`status`", content)
+        self.assertIn("`parent`", content)
+        self.assertIn("`blocked by`", content)
+
+        # Agent workflow checklist
+        self.assertIn("Agent Workflow Checklist", content)
+        self.assertIn("In Progress", content)
+        self.assertIn("Done", content)
+        self.assertIn("board.py", content)
+
+        # Discoverability & Integration
+        self.assertIn("Discoverability", content)
+        self.assertIn("See [flatmark/AGENTS.md](flatmark/AGENTS.md)", content)
+
+        # Customization story
+        self.assertIn("AGENTS.local.md", content)
+
 if __name__ == "__main__":
     unittest.main()
