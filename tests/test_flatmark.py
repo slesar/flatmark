@@ -1,7 +1,11 @@
+import io
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 import board
@@ -41,6 +45,12 @@ Body text.
     def test_parse_yaml_empty(self):
         self.assertEqual(board.parse_yaml("# No frontmatter"), {})
         self.assertEqual(board.parse_yaml(""), {})
+
+    def test_parse_yaml_no_trailing_newline_and_crlf(self):
+        # B2: closing --- at EOF without trailing newline
+        self.assertEqual(board.parse_yaml("---\nid: T1\nstatus: Todo\n---"), {"id": "T1", "status": "Todo"})
+        # B2: CRLF line endings
+        self.assertEqual(board.parse_yaml("---\r\nid: T2\r\nstatus: Todo\r\n---\r\n# Title\r\n"), {"id": "T2", "status": "Todo"})
 
 
 class TestBoardGeneration(unittest.TestCase):
@@ -125,6 +135,105 @@ status: Todo
         # Check blocker link
         self.assertIn("[B1](tickets/B1.md)", board_text)
 
+    def test_self_parent_and_cycles_rendered_with_warnings(self):
+        # B1: self-parent (T3 -> T3) and 2-node cycle (T1 <-> T2)
+        tickets = {
+            "T1.md": "---\nid: T1\nparent: T2\n---\n# Cycle A\n",
+            "T2.md": "---\nid: T2\nparent: T1\n---\n# Cycle B\n",
+            "T3.md": "---\nid: T3\nparent: T3\n---\n# Self Parent\n",
+        }
+        for name, content in tickets.items():
+            with open(os.path.join(self.tickets_dir, name), "w", encoding="utf-8") as f:
+                f.write(content)
+
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path), \
+             redirect_stderr(stderr_buf):
+            ok = board.update_board()
+
+        self.assertTrue(ok)
+        with open(self.board_path, "r", encoding="utf-8") as f:
+            board_text = f.read()
+
+        self.assertIn("[T1] Cycle A", board_text)
+        self.assertIn("[T2] Cycle B", board_text)
+        self.assertIn("[T3] Self Parent", board_text)
+        stderr_out = stderr_buf.getvalue()
+        self.assertIn("own parent", stderr_out)
+        self.assertIn("cycle", stderr_out.lower())
+
+    def test_invalid_frontmatter_warns(self):
+        # B2: file without frontmatter in tickets/ warns on stderr
+        with open(os.path.join(self.tickets_dir, "T1.md"), "w", encoding="utf-8") as f:
+            f.write("# No frontmatter here\n")
+
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path), \
+             redirect_stderr(stderr_buf):
+            board.update_board()
+
+        self.assertIn("T1.md", stderr_buf.getvalue())
+
+    def test_duplicate_ids_both_rendered_and_warned(self):
+        # B9: two files with the same id in frontmatter
+        with open(os.path.join(self.tickets_dir, "T1.md"), "w", encoding="utf-8") as f:
+            f.write("---\nid: T1\n---\n# First T1\n")
+        with open(os.path.join(self.tickets_dir, "T1_copy.md"), "w", encoding="utf-8") as f:
+            f.write("---\nid: T1\n---\n# Second T1\n")
+
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path), \
+             redirect_stderr(stderr_buf):
+            board.update_board()
+
+        with open(self.board_path, "r", encoding="utf-8") as f:
+            board_text = f.read()
+
+        self.assertIn("First T1", board_text)
+        self.assertIn("Second T1", board_text)
+        stderr_out = stderr_buf.getvalue()
+        self.assertIn("Duplicate ticket ID 'T1'", stderr_out)
+        self.assertIn("T1_copy.md", stderr_out)
+
+    def test_missing_tickets_dir_returns_false_and_exits_nonzero(self):
+        # B8: missing tickets/ prints to stderr, returns False, CLI exits non-zero
+        missing_dir = os.path.join(self.test_dir, "nonexistent")
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", missing_dir), \
+             redirect_stderr(stderr_buf):
+            ok = board.update_board()
+
+        self.assertFalse(ok)
+        self.assertIn("Error:", stderr_buf.getvalue())
+
+        # Subprocess exit code check on an installed copy with missing tickets/
+        install_root = os.path.join(self.test_dir, "proj")
+        os.makedirs(install_root, exist_ok=True)
+        install.install(install_root)
+        shutil.rmtree(os.path.join(install_root, "flatmark", "tickets"))
+
+        proc = subprocess.run(
+            [sys.executable, os.path.join(install_root, "flatmark", "board.py")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("Error:", proc.stderr)
+
+        proc_new = subprocess.run(
+            [sys.executable, os.path.join(install_root, "flatmark", "new.py"), "INVALID"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(proc_new.returncode, 0)
+        self.assertIn("Error:", proc_new.stderr)
+
 
 class TestNewTicket(unittest.TestCase):
     def setUp(self):
@@ -146,11 +255,11 @@ class TestNewTicket(unittest.TestCase):
     def test_get_next_id_incremental(self):
         # Create T1, T2 in tickets
         for tid in ["T1.md", "T2.md"]:
-            with open(os.path.join(self.tickets_dir, tid), "w") as f:
+            with open(os.path.join(self.tickets_dir, tid), "w", encoding="utf-8") as f:
                 f.write("")
 
         # Create T3 in archive
-        with open(os.path.join(self.archive_dir, "T3.md"), "w") as f:
+        with open(os.path.join(self.archive_dir, "T3.md"), "w", encoding="utf-8") as f:
             f.write("")
 
         with patch.object(new, "tickets_dir", self.tickets_dir), \

@@ -31,13 +31,13 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if len(sys.argv) < 2:
-        print("Usage: python3 flatmark/new.py [T|B|F|S|R|D] <Ticket Title>")
-        sys.exit(1)
+        print("Usage: python3 flatmark/new.py [T|B|F|S|R|D] <Ticket Title>", file=sys.stderr)
+        sys.exit(2)
         
     prefix = sys.argv[1].upper()
     if prefix not in ['T', 'B', 'F', 'S', 'R', 'D']:
-        print("Error: Prefix must be T (Task), or B (Bug), F (Feature), S (Spike), R (Release), D (Documentation)")
-        sys.exit(1)
+        print("Error: Prefix must be T (Task), or B (Bug), F (Feature), S (Spike), R (Release), D (Documentation)", file=sys.stderr)
+        sys.exit(2)
         
     title = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else "New Ticket"
     next_id = get_next_id(prefix)
@@ -56,10 +56,15 @@ Acceptance criteria:
 - [ ] Criteria 1
 """
 
-    with open(file_path, "w") as f:
-        f.write(content)
+    try:
+        with open(file_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+    except OSError as e:
+        print(f"Error: Could not write ticket file {file_path}: {e}", file=sys.stderr)
+        sys.exit(1)
         
     print(f"Created ticket: {next_id} ({file_path})")
     
     # Automatically synchronize the board
-    board.update_board()
+    if not board.update_board():
+        sys.exit(1)

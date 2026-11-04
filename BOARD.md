@@ -2,15 +2,10 @@
 
 | Ticket | Priority | Blocked by | Status |
 | :--- | :---: | :---: | :--- |
-| [[B1] Parent cycles and self-parent drop tickets from board](tickets/B1.md) | P1 |  | ⏳ Todo |
-| [[B2] Frontmatter without trailing newline is ignored](tickets/B2.md) | P1 |  | ⏳ Todo |
 | [[B3] Pipe character in title breaks board table](tickets/B3.md) | P2 |  | ⏳ Todo |
 | [[B4] Multiple blockers produce a broken link](tickets/B4.md) | P2 |  | ⏳ Todo |
 | [[B5] Blocker links break when blocker is archived](tickets/B5.md) | P2 |  | ⏳ Todo |
 | [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |
-| [[B7] Missing UTF-8 encoding breaks scripts on Windows](tickets/B7.md) | P1 |  | ⏳ Todo |
-| [[B8] board.py exits 0 on errors and prints errors to stdout](tickets/B8.md) | P1 |  | ⏳ Todo |
-| [[B9] Duplicate ticket IDs silently overwrite each other](tickets/B9.md) | P1 |  | ⏳ Todo |
 | [[B10] new.py may overwrite an existing ticket file](tickets/B10.md) | P2 |  | ⏳ Todo |
 | [[B11] install.py silently creates non-existent target directory](tickets/B11.md) | P3 |  | ⏳ Todo |
 | [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |

@@ -31,14 +31,14 @@ def get_version():
     return "unknown"
 
 def parse_yaml(content):
-    yaml_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+    yaml_pattern = re.compile(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
     match = yaml_pattern.search(content)
     if not match:
         return {}
 
     yaml_content = match.group(1)
     data = {}
-    for line in yaml_content.split('\n'):
+    for line in yaml_content.splitlines():
         if ':' in line:
             key, value = line.split(':', 1)
             data[key.strip()] = value.strip()
@@ -46,30 +46,36 @@ def parse_yaml(content):
 
 def update_board():
     if not os.path.exists(tickets_dir):
-        print(f"Error: {tickets_dir} not found.")
-        return
+        print(f"Error: {tickets_dir} not found.", file=sys.stderr)
+        return False
 
-    tickets_by_id = {}
+    tickets_by_key = {}
+    id_to_keys = {}
     parent_to_children = {}
 
     # Read and parse all tickets
-    for filename in os.listdir(tickets_dir):
+    for filename in sorted(os.listdir(tickets_dir), key=natural_sort_key):
         if not filename.endswith(".md"):
             continue
 
         file_path = os.path.join(tickets_dir, filename)
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         yaml_data = parse_yaml(content)
         if not yaml_data:
+            print(f"Warning: {filename} has missing or invalid YAML frontmatter; skipping.", file=sys.stderr)
             continue
 
         # Extract title from the first level 1 header
         title_match = re.search(r"^#\s+(.*)", content, re.MULTILINE)
-        title = title_match.group(1) if title_match else filename
+        title = title_match.group(1).strip() if title_match else filename
 
-        ticket_id = yaml_data.get("id", filename[:-3])
+        expected_id = filename[:-3]
+        ticket_id = yaml_data.get("id") or expected_id
+        if ticket_id != expected_id:
+            print(f"Warning: {filename} has frontmatter id '{ticket_id}' (expected '{expected_id}').", file=sys.stderr)
+
         status = yaml_data.get("status", "Todo")
         priority = yaml_data.get("priority", "P2")
         blocked_by = yaml_data.get("blocked by", "")
@@ -79,7 +85,9 @@ def update_board():
         if "Todo" in status and "⏳" not in status:
             status = f"⏳ {status}"
 
+        key = filename[:-3]
         ticket_info = {
+            "key": key,
             "id": ticket_id,
             "title": title,
             "priority": priority,
@@ -88,29 +96,76 @@ def update_board():
             "status": status,
             "filename": filename
         }
-        tickets_by_id[ticket_id] = ticket_info
+        tickets_by_key[key] = ticket_info
+        id_to_keys.setdefault(ticket_id, []).append(key)
 
-        if parent:
-            parent_to_children.setdefault(parent, []).append(ticket_id)
+    for tid, keys in id_to_keys.items():
+        if len(keys) > 1:
+            files = ", ".join(f"{k}.md" for k in keys)
+            print(f"Warning: Duplicate ticket ID '{tid}' in {files}.", file=sys.stderr)
+
+    # Resolve parent references (by ID or filename stem) and detect self-parent
+    parent_of = {}
+    for key, info in tickets_by_key.items():
+        raw_parent = info["parent"]
+        if not raw_parent:
+            continue
+        parent_key = None
+        if raw_parent in id_to_keys:
+            parent_key = id_to_keys[raw_parent][0]
+        elif raw_parent in tickets_by_key:
+            parent_key = raw_parent
+
+        if parent_key == key:
+            print(f"Warning: Ticket '{info['id']}' ({info['filename']}) is its own parent; rendering as root.", file=sys.stderr)
+            continue
+        if parent_key is not None:
+            parent_of[key] = parent_key
+
+    # Detect cycles in parent chain
+    in_cycle = set()
+    for key in tickets_by_key:
+        seen = []
+        seen_set = set()
+        curr = key
+        while curr in parent_of:
+            if curr in seen_set:
+                cycle_start = seen.index(curr)
+                for c in seen[cycle_start:]:
+                    in_cycle.add(c)
+                break
+            seen.append(curr)
+            seen_set.add(curr)
+            curr = parent_of[curr]
+
+    if in_cycle:
+        cycle_ids = ", ".join(sorted((tickets_by_key[k]["id"] for k in in_cycle), key=natural_sort_key))
+        print(f"Warning: Parent cycle detected among tickets: {cycle_ids}; rendering as roots.", file=sys.stderr)
+        for k in in_cycle:
+            parent_of.pop(k, None)
+
+    for key, pkey in parent_of.items():
+        parent_to_children.setdefault(pkey, []).append(key)
 
     # Sort children naturally
     for p in parent_to_children:
-        parent_to_children[p].sort(key=natural_sort_key)
+        parent_to_children[p].sort(key=lambda k: natural_sort_key(tickets_by_key[k]["id"]))
 
-    # Find root tickets (no parent, or parent not present/loaded)
-    roots = [
-        tid for tid in tickets_by_id
-        if not tickets_by_id[tid].get("parent") or tickets_by_id[tid].get("parent") not in tickets_by_id
-    ]
-    roots.sort(key=natural_sort_key)
+    # Find root tickets (no resolved parent)
+    roots = [key for key in tickets_by_key if key not in parent_of]
+    roots.sort(key=lambda k: natural_sort_key(tickets_by_key[k]["id"]))
 
     tickets_data = []
+    visited = set()
 
-    def traverse(ticket_id, prefix=""):
-        ticket = tickets_by_id[ticket_id]
-        children = parent_to_children.get(ticket_id, [])
+    def traverse(key, prefix=""):
+        if key in visited:
+            return
+        visited.add(key)
+        ticket = tickets_by_key[key]
+        children = parent_to_children.get(key, [])
 
-        display_title = f"[{ticket_id}] {ticket['title']}"
+        display_title = f"[{ticket['id']}] {ticket['title']}"
         if prefix:
             display_title = f"{prefix}{display_title}"
 
@@ -118,14 +173,19 @@ def update_board():
         ticket_row["display_title"] = display_title
         tickets_data.append(ticket_row)
 
-        for i, child_id in enumerate(children):
+        for i, child_key in enumerate(children):
             is_last = (i == len(children) - 1)
             connector = "└── " if is_last else "├── "
             child_prefix = prefix.replace("├── ", "│   ").replace("└── ", "    ") + connector
-            traverse(child_id, child_prefix)
+            traverse(child_key, child_prefix)
 
     for r in roots:
         traverse(r)
+
+    # Safety fallback: ensure every loaded ticket is rendered
+    for key in sorted(tickets_by_key, key=lambda k: natural_sort_key(tickets_by_key[k]["id"])):
+        if key not in visited:
+            traverse(key)
 
     # Build Board Table
     board_lines = [
@@ -150,13 +210,15 @@ def update_board():
     board_content = "\n".join(board_lines)
 
     # Saving the file
-    with open(board_path, "w") as f:
+    with open(board_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(board_content)
 
     print(f"Successfully updated {board_path} with {len(tickets_data)} tickets.")
+    return True
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ["--version", "-v"]:
         print(f"FlatMark v{get_version()}")
         sys.exit(0)
-    update_board()
+    if not update_board():
+        sys.exit(1)
