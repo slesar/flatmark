@@ -2,6 +2,30 @@
 
 | Ticket | Priority | Blocked by | Status |
 | :--- | :---: | :---: | :--- |
+| [[B1] Parent cycles and self-parent drop tickets from board](tickets/B1.md) | P1 |  | ⏳ Todo |
+| [[B2] Frontmatter without trailing newline is ignored](tickets/B2.md) | P1 |  | ⏳ Todo |
+| [[B3] Pipe character in title breaks board table](tickets/B3.md) | P2 |  | ⏳ Todo |
+| [[B4] Multiple blockers produce a broken link](tickets/B4.md) | P2 |  | ⏳ Todo |
+| [[B5] Blocker links break when blocker is archived](tickets/B5.md) | P2 |  | ⏳ Todo |
+| [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |
+| [[B7] Missing UTF-8 encoding breaks scripts on Windows](tickets/B7.md) | P1 |  | ⏳ Todo |
+| [[B8] board.py exits 0 on errors and prints errors to stdout](tickets/B8.md) | P1 |  | ⏳ Todo |
+| [[B9] Duplicate ticket IDs silently overwrite each other](tickets/B9.md) | P1 |  | ⏳ Todo |
+| [[B10] new.py may overwrite an existing ticket file](tickets/B10.md) | P2 |  | ⏳ Todo |
+| [[B11] install.py silently creates non-existent target directory](tickets/B11.md) | P3 |  | ⏳ Todo |
+| [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |
+| [[D2] Improve AGENTS.md: schema, workflow, discoverability](tickets/D2.md) | P1 |  | ⏳ Todo |
+| [[F1] Prevent ticket ID collisions across parallel agents and branches](tickets/F1.md) | P1 |  | ⏳ Todo |
+| [[F2] Avoid BOARD.md merge conflicts and add staleness check](tickets/F2.md) | P1 | [T3](tickets/T3.md) | ⏳ Todo |
+| [[F3] Unified flatmark CLI with agent-friendly verbs](tickets/F3.md) | P2 | [T3](tickets/T3.md) | ⏳ Todo |
+| [└── [F4] Ticket linting command](tickets/F4.md) | P2 |  | ⏳ Todo |
+| [[F5] Board UX: status icons, resolved blockers, summary](tickets/F5.md) | P3 | [B5](tickets/B5.md) | ⏳ Todo |
+| [[F6] Installer trust: pinned versions, checksums, pipx/uvx](tickets/F6.md) | P2 |  | ⏳ Todo |
+| [[T1] Separate distribution payload from repository dev files](tickets/T1.md) | P2 |  | ⏳ Todo |
+| [[T2] Repository housekeeping: version fallback, dead code, release tags](tickets/T2.md) | P3 |  | ⏳ Todo |
+| [[T3] Refactor core scripts to modern Python practices](tickets/T3.md) | P2 |  | ⏳ Todo |
+| [[T4] Improve test suite coverage and structure](tickets/T4.md) | P2 |  | ⏳ Todo |
+| [[T5] Harden CI: OS matrix, linting, installer smoke test](tickets/T5.md) | P2 |  | ⏳ Todo |
 
 ---
 *Generated with FlatMark v0.1.0*
