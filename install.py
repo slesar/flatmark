@@ -9,7 +9,7 @@ import urllib.request
 
 CORE_FILES = ["AGENTS.md", "board.py", "new.py", "VERSION"]
 EXECUTABLE_FILES = {"board.py", "new.py"}
-DEFAULT_RAW_BASE_URL = "https://raw.githubusercontent.com/slesar/flatmark/main"
+DEFAULT_RAW_BASE_URL = "https://raw.githubusercontent.com/slesar/flatmark/main/src/flatmark"
 
 def read_version(directory):
     version_file = os.path.join(directory, "VERSION")
@@ -26,9 +26,12 @@ def get_local_source_dir():
         return None
     if not os.path.isfile(__file__):
         return None
-    candidate = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(script_dir, "src", "flatmark")
     if all(os.path.isfile(os.path.join(candidate, f)) for f in CORE_FILES):
         return candidate
+    if all(os.path.isfile(os.path.join(script_dir, f)) for f in CORE_FILES):
+        return script_dir
     return None
 
 def fetch_remote_file(filename, base_url=None):

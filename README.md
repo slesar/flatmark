@@ -21,7 +21,7 @@ Copilot, and Aider).
   markdown table in `BOARD.md` complete with visual tree hierarchies and
   blocking links.
 - **AI Agent Optimized**: Provides a clear, parseable specification
-  ([`AGENTS.md`](AGENTS.md)) that guides AI agents to create, update, and
+  ([`AGENTS.md`](src/flatmark/AGENTS.md)) that guides AI agents to create, update, and
   resolve tasks deterministically.
 - **Hierarchical & Dependency Tracking**: Supports nested tasks (`parent: ...`)
   and dependency blockers (`blocked by: ...`).
@@ -187,7 +187,7 @@ python3 flatmark/board.py --version
 
 ## Best Practices for AI Agents
 
-FlatMark includes [`AGENTS.md`](AGENTS.md), which is designed to be fed
+FlatMark includes [`AGENTS.md`](src/flatmark/AGENTS.md) (installed at `flatmark/AGENTS.md`), which is designed to be fed
 directly into AI context (or referenced in rules like `.cursorrules`,
 `CLAUDE.md`, or system prompts).
 
@@ -216,6 +216,12 @@ FlatMark includes a test suite using standard Python `unittest`:
 ```bash
 python3 -m unittest discover tests
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details on our development workflow, repository structure, and ticket management for contributors.
 
 ---
 

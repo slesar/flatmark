@@ -1,3 +1,4 @@
+import http.server
 import io
 import os
 import re
@@ -5,9 +6,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr
 from unittest.mock import patch
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(REPO_ROOT, "src", "flatmark")
+for p in [SRC_DIR, REPO_ROOT]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 import board
 import new
@@ -424,13 +432,13 @@ class TestInstall(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(dest_dir, "VERSION")))
 
         # Check that VERSION content matches source
-        source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_dir = os.path.join(REPO_ROOT, "src", "flatmark")
         source_ver = install.read_version(source_dir)
         installed_ver = install.read_version(dest_dir)
         self.assertEqual(source_ver, installed_ver)
 
     def test_remote_install(self):
-        source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_dir = os.path.join(REPO_ROOT, "src", "flatmark")
 
         def mock_fetch(filename, base_url=None):
             with open(os.path.join(source_dir, filename), "rb") as f:
@@ -447,6 +455,60 @@ class TestInstall(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(dest_dir, "new.py")))
         self.assertTrue(os.access(os.path.join(dest_dir, "board.py"), os.X_OK))
         self.assertTrue(os.access(os.path.join(dest_dir, "new.py"), os.X_OK))
+
+    def test_default_raw_base_url(self):
+        self.assertEqual(
+            install.DEFAULT_RAW_BASE_URL,
+            "https://raw.githubusercontent.com/slesar/flatmark/main/src/flatmark"
+        )
+
+    def test_get_local_source_dir(self):
+        source_dir = install.get_local_source_dir()
+        self.assertIsNotNone(source_dir)
+        self.assertTrue(os.path.isdir(source_dir))
+        self.assertEqual(
+            os.path.abspath(source_dir),
+            os.path.abspath(os.path.join(REPO_ROOT, "src", "flatmark"))
+        )
+
+    def test_one_liner_stdin_install(self):
+        # Emulates: curl ... | python3 - <target>
+        class LocalHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=os.path.join(REPO_ROOT, "src", "flatmark"), **kwargs)
+
+            def log_message(self, format, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), LocalHandler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        port = server.server_port
+
+        try:
+            with open(os.path.join(REPO_ROOT, "install.py"), "r", encoding="utf-8") as f:
+                installer_code = f.read()
+
+            env = os.environ.copy()
+            env["FLATMARK_RAW_URL"] = f"http://127.0.0.1:{port}"
+            proc = subprocess.run(
+                [sys.executable, "-", self.test_root],
+                input=installer_code,
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(proc.returncode, 0, f"Installer failed with stderr: {proc.stderr}")
+            dest_dir = os.path.join(self.test_root, "flatmark")
+            self.assertTrue(os.path.isdir(dest_dir))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, "BOARD.md")))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, "AGENTS.md")))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, "board.py")))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, "new.py")))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, "VERSION")))
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_discoverability_pointer_added_interactively(self):
         # D2: installer offers to add pointer to project root AGENTS.md / CLAUDE.md
@@ -481,10 +543,9 @@ class TestInstall(unittest.TestCase):
 
 
 class TestAgentsDoc(unittest.TestCase):
-    def test_agents_doc_content(self):
+    def test_payload_agents_doc_content(self):
         # D2: AGENTS.md schema table, workflow checklist, discoverability, AGENTS.local.md
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        agents_path = os.path.join(repo_root, "AGENTS.md")
+        agents_path = os.path.join(REPO_ROOT, "src", "flatmark", "AGENTS.md")
 
         self.assertTrue(os.path.isfile(agents_path))
         with open(agents_path, "r", encoding="utf-8") as f:
@@ -510,6 +571,26 @@ class TestAgentsDoc(unittest.TestCase):
 
         # Customization story
         self.assertIn("AGENTS.local.md", content)
+
+    def test_root_agents_doc_for_contributors(self):
+        root_agents = os.path.join(REPO_ROOT, "AGENTS.md")
+        self.assertTrue(os.path.isfile(root_agents))
+        with open(root_agents, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("flatmark/AGENTS.md", content)
+        self.assertIn("unittest discover tests", content)
+        self.assertIn("src/flatmark", content)
+        self.assertIn("flatmark/tickets", content)
+
+    def test_contributing_doc(self):
+        contrib_path = os.path.join(REPO_ROOT, "CONTRIBUTING.md")
+        self.assertTrue(os.path.isfile(contrib_path))
+        with open(contrib_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("Contributing to FlatMark", content)
+        self.assertIn("unittest discover tests", content)
 
 if __name__ == "__main__":
     unittest.main()

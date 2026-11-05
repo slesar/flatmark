@@ -25,3 +25,11 @@ jobs:
     - name: Run test suite
       run: |
         python -m unittest discover tests -v
+
+    - name: Test installer
+      run: |
+        python install.py /tmp/test-project
+        test -d /tmp/test-project/flatmark
+        test -f /tmp/test-project/flatmark/BOARD.md
+        test -f /tmp/test-project/flatmark/AGENTS.md
+        python /tmp/test-project/flatmark/board.py
