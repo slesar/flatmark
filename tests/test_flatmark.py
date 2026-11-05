@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -299,6 +300,42 @@ parent: T1
                 if cells and cells[0] != "Ticket":  # skip header
                     self.assertEqual(len(cells), 4, f"Row should have 4 cells: {line}")
 
+    def test_board_rendering_and_natural_sort_with_random_ids(self):
+        # F1: Board rendering, blockers, and natural sorting with random IDs
+        t1_path = os.path.join(self.tickets_dir, "T-7f3a.md")
+        with open(t1_path, "w", encoding="utf-8") as f:
+            f.write("""---
+id: T-7f3a
+priority: P1
+status: In Progress
+---
+# Parent Feature
+""")
+
+        t2_path = os.path.join(self.tickets_dir, "T-a1b2.md")
+        with open(t2_path, "w", encoding="utf-8") as f:
+            f.write("""---
+id: T-a1b2
+priority: P2
+status: Todo
+parent: T-7f3a
+blocked by: T-7f3a
+---
+# Child Task
+""")
+
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path):
+            board.update_board()
+
+        with open(self.board_path, "r", encoding="utf-8") as f:
+            board_text = f.read()
+
+        self.assertIn("[T-7f3a] Parent Feature", board_text)
+        self.assertIn("└── [T-a1b2] Child Task", board_text)
+        self.assertIn("[T-7f3a](tickets/T-7f3a.md)", board_text)
+
 
 class TestNewTicket(unittest.TestCase):
     def setUp(self):
@@ -332,6 +369,38 @@ class TestNewTicket(unittest.TestCase):
             self.assertEqual(new.get_next_id("T"), "T4")
             # Other prefixes should still start at 1
             self.assertEqual(new.get_next_id("B"), "B1")
+
+    def test_get_next_id_random(self):
+        # F1: random scheme produces <prefix>-<hex4> format
+        with patch.object(new, "tickets_dir", self.tickets_dir), \
+             patch.object(new, "archive_dir", self.archive_dir):
+            tid = new.get_next_id("T", scheme="random")
+            self.assertTrue(re.match(r"^T-[0-9a-f]{4}$", tid), f"ID '{tid}' did not match random format")
+
+            bid = new.get_next_id("B", scheme="hash")
+            self.assertTrue(re.match(r"^B-[0-9a-f]{4}$", bid))
+
+    def test_get_next_id_random_avoids_collision(self):
+        # F1: random scheme must not generate an ID that already exists
+        with open(os.path.join(self.tickets_dir, "T-7f3a.md"), "w", encoding="utf-8") as f:
+            f.write("")
+
+        with patch.object(new, "tickets_dir", self.tickets_dir), \
+             patch.object(new, "archive_dir", self.archive_dir), \
+             patch("secrets.token_hex", side_effect=["7f3a", "a1b2"]):
+            tid = new.get_next_id("T", scheme="random")
+            self.assertEqual(tid, "T-a1b2")
+
+    def test_get_next_id_default_is_sequential(self):
+        # F1: default scheme is sequential
+        with patch.object(new, "tickets_dir", self.tickets_dir), \
+             patch.object(new, "archive_dir", self.archive_dir):
+            tid = new.get_next_id("T")
+            self.assertEqual(tid, "T1")
+
+    def test_get_next_id_invalid_scheme_raises(self):
+        with self.assertRaises(ValueError):
+            new.get_next_id("T", scheme="unsupported")
 
 
 class TestInstall(unittest.TestCase):

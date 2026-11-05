@@ -109,12 +109,16 @@ FlatMark supports alphanumeric sorting with standard prefixes:
 - `R` - **Release** (deployment checklists, launch prep)
 - `D` - **Documentation** (user guides, READMEs, API docs)
 
-Run `new.py` to automatically allocate the next sequential ID and generate a
-template:
+Run `new.py` to automatically allocate an ID and generate a template:
 
 ```bash
+# Default sequential ID:
 python3 flatmark/new.py F "User authentication"
 # Output: Created ticket: F1 (flatmark/tickets/F1.md)
+
+# Or decentralized short random hash ID (ideal for parallel branches / agents):
+python3 flatmark/new.py --scheme random F "User authentication"
+# Output: Created ticket: F-7f3a (flatmark/tickets/F-7f3a.md)
 ```
 
 ### 2. Edit Ticket Metadata & Content

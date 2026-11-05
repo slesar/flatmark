@@ -43,7 +43,7 @@ Every ticket in `tickets/` MUST begin with a YAML frontmatter block enclosed bet
 
 | Field | Required | Allowed Values | Default | Description |
 | :--- | :---: | :--- | :--- | :--- |
-| `id` | **Yes** | `[T\|B\|F\|S\|R\|D]<number>` | *(derived from filename)* | Unique ticket identifier matching the filename stem (e.g. `B8.md` -> `B8`). |
+| `id` | **Yes** | `[T\|B\|F\|S\|R\|D]<number>` or `[T\|B\|F\|S\|R\|D]-<hex>` | *(derived from filename)* | Unique ticket identifier matching the filename stem (e.g. `B8.md` -> `B8`, `T-7f3a.md` -> `T-7f3a`). |
 | `priority` | No | `P0`, `P1`, `P2`, `P3` | `P2` | Urgency level: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low). |
 | `status` | No | `Todo`, `In Progress`, `Done`, `Obsolete` | `Todo` | Current ticket lifecycle status. |
 | `parent` | No | Existing ticket ID (e.g. `F2`) | *(none)* | Parent ticket ID for visual hierarchical tree nesting (`├──`, `└──`). |
@@ -125,7 +125,7 @@ You can interact with FlatMark without leaving the project root:
 
 - **Create a New Ticket**:
   ```bash
-  python3 flatmark/new.py [T|B|F|S|R|D] "Ticket Title"
+  python3 flatmark/new.py [--scheme sequential|random] [T|B|F|S|R|D] "Ticket Title"
   ```
 - **Update the Board**:
   ```bash
@@ -138,16 +138,28 @@ You can interact with FlatMark without leaving the project root:
 - **Quick Search**:
   Use `grep` or your IDE search across `tickets/` to find tickets by ID, keyword, parent, or status.
 
-## 6. Ticket ID Prefixes
+## 6. Ticket ID Prefixes & Schemes
 
 FlatMark supports alphanumeric sorting with standard prefixes:
 
-- **`T<number>`**: Tasks (general tasks, chores, and refactoring)
-- **`B<number>`**: Bugs (defects, issues, and regressions)
-- **`F<number>`**: Features (new functionality, user stories)
-- **`S<number>`**: Spikes (research, investigations, prototyping)
-- **`R<number>`**: Releases (deployment checklists, launch prep)
-- **`D<number>`**: Documentation (user guides, READMEs, API docs)
+- **`T`**: Tasks (general tasks, chores, and refactoring)
+- **`B`**: Bugs (defects, issues, and regressions)
+- **`F`**: Features (new functionality, user stories)
+- **`S`**: Spikes (research, investigations, prototyping)
+- **`R`**: Releases (deployment checklists, launch prep)
+- **`D`**: Documentation (user guides, READMEs, API docs)
+
+### ID Allocation Schemes
+
+FlatMark supports two ID allocation schemes:
+
+1. **Sequential Numbers** (*default*): Generates sequential IDs like `T1`, `B2`.
+2. **Short Random Hash**: Generates decentralized short hex IDs like `T-7f3a`, `B-c2d4`. Ideal for parallel autonomous agents and feature branches to eliminate ID collisions.
+
+To generate a ticket with a random ID, pass `--scheme random` (or `--random`) to `new.py`:
+```bash
+python3 flatmark/new.py --scheme random T "Ticket Title"
+```
 
 ## 7. Discoverability & Integration with Root Agent Files
 
