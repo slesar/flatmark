@@ -1,7 +1,7 @@
 # FlatMark
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![Python: 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/)
 
 **FlatMark** is a lightweight, zero-dependency, file-based ticketing system
 designed to live inside any project. Built with pure Python standard library and
@@ -14,7 +14,7 @@ Copilot, and Aider).
 ## Highlights
 
 - **Zero External Dependencies**: Works out of the box with standard Python
-  3.8+. No `pip install`, no databases, no cloud accounts.
+  3.13+. No `pip install`, no databases, no cloud accounts.
 - **Git-Native**: Tickets are version-controlled Markdown files stored directly
   in your repository.
 - **Automated Board Generator**: Automatically syncs and formats an interactive
