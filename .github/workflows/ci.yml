@@ -26,6 +26,10 @@ jobs:
       run: |
         python -m unittest discover tests -v
 
+    - name: Run ticket linter
+      run: |
+        python flatmark/flatmark.py lint
+
     - name: Test installer
       run: |
         python install.py /tmp/test-project
@@ -33,3 +37,4 @@ jobs:
         test -f /tmp/test-project/flatmark/BOARD.md
         test -f /tmp/test-project/flatmark/AGENTS.md
         python /tmp/test-project/flatmark/board.py
+        python /tmp/test-project/flatmark/flatmark.py lint

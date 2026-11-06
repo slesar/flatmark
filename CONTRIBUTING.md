@@ -15,6 +15,8 @@ flatmark/                     # repo
 ├── src/flatmark/             # Core distribution payload copied by install.py
 │   ├── AGENTS.md             # Installed ticket management guidelines for projects
 │   ├── board.py              # Ticket board generator & synchronizer
+│   ├── flatmark.py           # Unified FlatMark CLI entry point
+│   ├── lint.py               # Ticket linter helper script
 │   ├── new.py                # Helper script to allocate ticket IDs and templates
 │   └── VERSION               # Version file
 ├── install.py                # Standalone installer (local & remote one-liner)
@@ -58,6 +60,7 @@ python3 -m unittest discover tests -v
    - Check all acceptance criteria checkboxes `- [x]`.
    - Set `status: Done` and move the ticket file to `flatmark/archive/<ID>.md`.
    - Run `python3 flatmark/board.py` to refresh the board.
+   - Run `python3 flatmark/flatmark.py lint` to verify that all tickets and dependencies are valid.
    - Commit your changes with the ticket ID prefix: `[#<ID>] Summary of changes`.
 
 ### Code Style & Guidelines

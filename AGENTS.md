@@ -11,6 +11,8 @@ flatmark/                     # repo
 ├── src/flatmark/             # Core distribution payload copied by install.py
 │   ├── AGENTS.md             # Installed ticket management guidelines for projects
 │   ├── board.py              # Ticket board generator & synchronizer
+│   ├── flatmark.py           # Unified FlatMark CLI entry point
+│   ├── lint.py               # Ticket linter helper script
 │   ├── new.py                # Helper script to allocate ticket IDs and templates
 │   └── VERSION               # Version file
 ├── install.py                # Standalone installer (local & remote one-liner)
@@ -94,7 +96,14 @@ See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules, frontm
      python3 flatmark/board.py
      ```
    - Confirm the ticket has moved off the active table in `flatmark/BOARD.md`.
-7. **Commit Changes**:
+7. **Lint Tickets (Mandatory)**:
+   - Run the ticket linter to ensure all tickets, frontmatter, and dependencies are valid:
+     ```bash
+     python3 flatmark/flatmark.py lint
+     ```
+     *(Or `python3 flatmark/flatmark.py lint --fix` to auto-resolve safe issues).*
+   - Confirm all lint issues are resolved and exit code is 0 before committing.
+8. **Commit Changes**:
    - Include the ticket ID in the commit message:
      ```bash
      git commit -m "[#<ID>] Fix bug or implement feature"

@@ -7,8 +7,8 @@ import sys
 import urllib.error
 import urllib.request
 
-CORE_FILES = ["AGENTS.md", "board.py", "new.py", "VERSION"]
-EXECUTABLE_FILES = {"board.py", "new.py"}
+CORE_FILES = ["AGENTS.md", "board.py", "new.py", "VERSION", "flatmark.py", "lint.py"]
+EXECUTABLE_FILES = {"board.py", "new.py", "flatmark.py", "lint.py"}
 DEFAULT_RAW_BASE_URL = "https://raw.githubusercontent.com/slesar/flatmark/main/src/flatmark"
 
 def read_version(directory):
@@ -162,6 +162,7 @@ def install(target_root=None, base_url=None):
     print("Usage from project root:")
     print("  python3 flatmark/new.py [T|B|F|S|R|D] \"Ticket Title\"")
     print("  python3 flatmark/board.py")
+    print("  python3 flatmark/flatmark.py lint")
 
     check_agent_discoverability(target_root, dest_dir)
 

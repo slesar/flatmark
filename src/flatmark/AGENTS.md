@@ -12,6 +12,8 @@ When installed, FlatMark creates a self-contained `flatmark/` directory:
 - `BOARD.md`: An auto-generated Markdown overview of all active tickets. **Do not edit manually.**
 - `board.py`: Synchronizes `BOARD.md` with the tickets in `tickets/`.
 - `new.py`: Helper script to allocate sequential ticket IDs and create ticket templates.
+- `flatmark.py`: Unified FlatMark CLI entry point (`lint`, `board`, `new`).
+- `lint.py`: Helper script to validate ticket frontmatter, metadata, dependencies, and lifecycle status.
 - `VERSION`: File containing the currently installed FlatMark version.
 - `AGENTS.md`: This file. Guidelines and workflow rules for AI agents (overwritten during upgrades).
 - `AGENTS.local.md`: *(Optional)* Project-specific agent rules and conventions (**never** overwritten).
@@ -113,7 +115,14 @@ When assigned or picking up a FlatMark ticket, AI agents MUST follow this exact 
      python3 flatmark/board.py
      ```
    - Confirm the ticket has moved off the active table in `BOARD.md`.
-7. **Commit Changes**:
+7. **Lint Tickets (Mandatory)**:
+   - Run the ticket linter to ensure all tickets, frontmatter, and dependencies are valid:
+     ```bash
+     python3 flatmark/flatmark.py lint
+     ```
+     *(Or `python3 flatmark/flatmark.py lint --fix` to auto-resolve safe issues like archiving completed tickets).*
+   - Confirm all lint issues are resolved and exit code is 0 before committing.
+8. **Commit Changes**:
    - Include the ticket ID in the commit message:
      ```bash
      git commit -m "[#<ID>] Fix bug or implement feature"
@@ -130,6 +139,12 @@ You can interact with FlatMark without leaving the project root:
 - **Update the Board**:
   ```bash
   python3 flatmark/board.py
+  ```
+- **Lint Tickets**:
+  ```bash
+  python3 flatmark/flatmark.py lint
+  # Or automatically fix safe issues:
+  python3 flatmark/flatmark.py lint --fix
   ```
 - **Check Version**:
   ```bash

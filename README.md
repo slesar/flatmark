@@ -44,6 +44,8 @@ my-project/
 │   ├── AGENTS.md      # Instructions & conventions for AI coding agents
 │   ├── board.py       # Synchronizes BOARD.md with tickets/
 │   ├── new.py         # Helper script to create tickets with incremental IDs
+│   ├── flatmark.py    # Unified CLI entry point (lint, board, new)
+│   ├── lint.py        # Validates ticket frontmatter, metadata, and dependencies
 │   └── VERSION        # Current FlatMark version
 ```
 
@@ -177,7 +179,18 @@ When a ticket is completed (`Done`) or retired (`Obsolete`):
 2. Move the file from `flatmark/tickets/` to `flatmark/archive/`.
 3. Run `python3 flatmark/board.py` to refresh the active board.
 
-### 5. Check Installed Version
+### 5. Lint & Validate Tickets
+
+Validate all tickets for valid frontmatter, valid statuses/priorities, proper directory placement, and dependency integrity:
+
+```bash
+python3 flatmark/flatmark.py lint
+
+# Or automatically fix safe issues (move Done tickets to archive/, fix IDs):
+python3 flatmark/flatmark.py lint --fix
+```
+
+### 6. Check Installed Version
 
 ```bash
 python3 flatmark/board.py --version
