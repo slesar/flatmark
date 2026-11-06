@@ -1,0 +1,3 @@
+
+# Prevent merge conflicts on auto-generated FlatMark board
+flatmark/BOARD.md merge=ours

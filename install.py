@@ -89,6 +89,67 @@ def check_agent_discoverability(target_root, dest_dir):
         print("  To ensure AI agents discover FlatMark, add this pointer to your project root AGENTS.md or CLAUDE.md:")
         print(f"  {pointer_line}")
 
+def configure_gitattributes(target_root, dest_dir):
+    gitattributes_path = os.path.join(target_root, ".gitattributes")
+    try:
+        rel_board = os.path.relpath(os.path.join(dest_dir, "BOARD.md"), target_root)
+    except ValueError:
+        rel_board = "flatmark/BOARD.md"
+    rule_line = f"{rel_board} merge=ours"
+
+    already_configured = False
+    if os.path.isfile(gitattributes_path):
+        try:
+            with open(gitattributes_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            if rel_board in content or "BOARD.md merge=ours" in content:
+                already_configured = True
+        except OSError:
+            pass
+
+    if already_configured:
+        return
+
+    is_git_repo = (
+        os.path.isdir(os.path.join(target_root, ".git"))
+        or os.path.isfile(os.path.join(target_root, ".git"))
+        or os.path.isfile(gitattributes_path)
+    )
+
+    should_add = False
+    if "--gitattributes" in sys.argv:
+        should_add = True
+    elif is_git_repo and sys.stdin.isatty():
+        try:
+            resp = input(f"Add '{rule_line}' to .gitattributes to prevent merge conflicts? (y/N): ").strip().lower()
+            should_add = (resp == "y")
+        except EOFError:
+            should_add = False
+
+    if should_add:
+        try:
+            with open(gitattributes_path, "a", encoding="utf-8") as f:
+                if os.path.isfile(gitattributes_path) and os.path.getsize(gitattributes_path) > 0:
+                    with open(gitattributes_path, "r", encoding="utf-8") as rf:
+                        last_char = rf.read()[-1:]
+                    if last_char and last_char != "\n":
+                        f.write("\n")
+                f.write(f"\n# Prevent merge conflicts on auto-generated FlatMark board\n{rule_line}\n")
+            print(f"Added merge=ours attribute -> {gitattributes_path}")
+            print("\nGit Merge Driver Setup:")
+            print("  To enable this attribute, configure Git's 'ours' merge driver once:")
+            print("    git config merge.ours.driver true")
+            print("  After merging branches, regenerate BOARD.md by running:")
+            print("    python3 flatmark/board.py")
+        except OSError as e:
+            print(f"Warning: Could not update {gitattributes_path}: {e}", file=sys.stderr)
+    elif is_git_repo:
+        print("\nGit Conflict Prevention (Optional):")
+        print("  To avoid merge conflicts on BOARD.md across branches, add to .gitattributes:")
+        print(f"    {rule_line}")
+        print("  And enable the driver: git config merge.ours.driver true")
+        print("  After merging branches, regenerate with: python3 flatmark/board.py")
+
 def install(target_root=None, base_url=None):
     if target_root is None:
         target_root = os.getcwd()
@@ -165,6 +226,7 @@ def install(target_root=None, base_url=None):
     print("  python3 flatmark/flatmark.py lint")
 
     check_agent_discoverability(target_root, dest_dir)
+    configure_gitattributes(target_root, dest_dir)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ["--version", "-v"]:
@@ -176,5 +238,6 @@ if __name__ == "__main__":
         print(f"FlatMark Installer v{ver}")
         sys.exit(0)
 
-    target = sys.argv[1] if len(sys.argv) > 1 else None
+    positional = [a for a in sys.argv[1:] if not a.startswith("-")]
+    target = positional[0] if positional else None
     install(target)

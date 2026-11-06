@@ -139,7 +139,11 @@ You can interact with FlatMark without leaving the project root:
 - **Update the Board**:
   ```bash
   python3 flatmark/board.py
+  # Check freshness without modifying BOARD.md (exits 1 if stale):
+  python3 flatmark/board.py --check
   ```
+- **Merge Conflict Prevention**:
+  To avoid merge conflicts on `BOARD.md` across parallel branches, configure `flatmark/BOARD.md merge=ours` in `.gitattributes` (`git config merge.ours.driver true`), or add `flatmark/BOARD.md` to `.gitignore` and generate on demand.
 - **Lint Tickets**:
   ```bash
   python3 flatmark/flatmark.py lint

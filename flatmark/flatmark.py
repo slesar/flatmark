@@ -438,7 +438,7 @@ def print_help():
 Commands:
   lint [--fix]    Validate ticket frontmatter, metadata, dependencies and status
   check [--fix]   Alias for 'lint'
-  board           Regenerate BOARD.md
+  board [--check] Regenerate or check BOARD.md freshness
   new [args...]   Create a new ticket
 
 Options:
@@ -465,7 +465,8 @@ def main(argv=None):
     if command in ("lint", "check"):
         return lint_main(sub_args)
     elif command == "board":
-        success = board.update_board()
+        check_mode = ("--check" in sub_args or "-c" in sub_args)
+        success = board.update_board(check=check_mode)
         return 0 if success else 1
     elif command == "new":
         new_script = os.path.join(base_dir, "new.py")

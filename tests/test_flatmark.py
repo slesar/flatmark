@@ -345,6 +345,86 @@ blocked by: T-7f3a
         self.assertIn("└── [T-a1b2] Child Task", board_text)
         self.assertIn("[T-7f3a](tickets/T-7f3a.md)", board_text)
 
+    def test_board_check_up_to_date(self):
+        t1_path = os.path.join(self.tickets_dir, "T1.md")
+        with open(t1_path, "w", encoding="utf-8") as f:
+            f.write("---\nid: T1\nstatus: Todo\n---\n# Ticket 1\n")
+
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path):
+            board.update_board()
+            # In check mode, should return True because board is up to date
+            ok = board.update_board(check=True)
+
+        self.assertTrue(ok)
+
+    def test_board_check_out_of_date_returns_false_and_does_not_modify(self):
+        t1_path = os.path.join(self.tickets_dir, "T1.md")
+        with open(t1_path, "w", encoding="utf-8") as f:
+            f.write("---\nid: T1\nstatus: Todo\n---\n# Ticket 1\n")
+
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path):
+            board.update_board()
+
+        # Mutate BOARD.md to make it stale
+        with open(self.board_path, "w", encoding="utf-8") as f:
+            f.write("# Stale Board\n")
+
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path), \
+             redirect_stderr(stderr_buf):
+            ok = board.update_board(check=True)
+
+        self.assertFalse(ok)
+        self.assertIn("out of date", stderr_buf.getvalue())
+
+        # Verify BOARD.md was not overwritten
+        with open(self.board_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertEqual(content, "# Stale Board\n")
+
+    def test_board_check_missing_board_returns_false(self):
+        if os.path.exists(self.board_path):
+            os.remove(self.board_path)
+
+        stderr_buf = io.StringIO()
+        with patch.object(board, "tickets_dir", self.tickets_dir), \
+             patch.object(board, "board_path", self.board_path), \
+             patch.object(board, "version_path", self.version_path), \
+             redirect_stderr(stderr_buf):
+            ok = board.update_board(check=True)
+
+        self.assertFalse(ok)
+        self.assertIn("does not exist", stderr_buf.getvalue())
+
+    def test_board_cli_check_subprocess(self):
+        proj_root = tempfile.mkdtemp()
+        try:
+            flatmark_dir = os.path.join(proj_root, "flatmark")
+            install.install(proj_root)
+            board_script = os.path.join(flatmark_dir, "board.py")
+
+            # Initially in sync: should exit 0
+            proc = subprocess.run([sys.executable, board_script, "--check"], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0)
+            self.assertIn("up to date", proc.stdout)
+
+            # Add a ticket without updating board
+            with open(os.path.join(flatmark_dir, "tickets", "T1.md"), "w") as f:
+                f.write("---\nid: T1\nstatus: Todo\n---\n# New Task\n")
+
+            # Out of date: should exit 1
+            proc_stale = subprocess.run([sys.executable, board_script, "--check"], capture_output=True, text=True)
+            self.assertEqual(proc_stale.returncode, 1)
+            self.assertIn("out of date", proc_stale.stderr)
+        finally:
+            shutil.rmtree(proj_root)
+
 
 class TestNewTicket(unittest.TestCase):
     def setUp(self):
@@ -553,6 +633,47 @@ class TestInstall(unittest.TestCase):
         with open(local_rules_path, "r", encoding="utf-8") as f:
             content = f.read()
         self.assertEqual(content, "# Custom Project Rules\nNever overwrite me!\n")
+
+    def test_gitattributes_added_interactively(self):
+        # F2: installer offers to add flatmark/BOARD.md merge=ours to .gitattributes
+        gitattrs = os.path.join(self.test_root, ".gitattributes")
+        os.makedirs(os.path.join(self.test_root, ".git"), exist_ok=True)
+
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="y"):
+            install.install(self.test_root)
+
+        self.assertTrue(os.path.isfile(gitattrs))
+        with open(gitattrs, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("flatmark/BOARD.md merge=ours", content)
+
+    def test_gitattributes_added_via_flag(self):
+        # F2: installer supports --gitattributes flag without prompting
+        gitattrs = os.path.join(self.test_root, ".gitattributes")
+
+        with patch("sys.stdin.isatty", return_value=False), \
+             patch("sys.argv", ["install.py", self.test_root, "--gitattributes"]):
+            install.install(self.test_root)
+
+        self.assertTrue(os.path.isfile(gitattrs))
+        with open(gitattrs, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("flatmark/BOARD.md merge=ours", content)
+
+    def test_gitattributes_skipped_if_already_configured(self):
+        gitattrs = os.path.join(self.test_root, ".gitattributes")
+        with open(gitattrs, "w", encoding="utf-8") as f:
+            f.write("# Existing rules\nflatmark/BOARD.md merge=ours\n")
+
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", side_effect=["n"]):  # only discoverability prompt if any
+            install.install(self.test_root)
+
+        with open(gitattrs, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Count occurrences of merge=ours
+        self.assertEqual(content.count("flatmark/BOARD.md merge=ours"), 1)
 
 
 class TestAgentsDoc(unittest.TestCase):

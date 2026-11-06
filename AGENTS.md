@@ -95,7 +95,7 @@ See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules, frontm
      ```bash
      python3 flatmark/board.py
      ```
-   - Confirm the ticket has moved off the active table in `flatmark/BOARD.md`.
+   - Confirm the ticket has moved off the active table in `flatmark/BOARD.md` (or verify with `python3 flatmark/board.py --check`).
 7. **Lint Tickets (Mandatory)**:
    - Run the ticket linter to ensure all tickets, frontmatter, and dependencies are valid:
      ```bash

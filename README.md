@@ -171,6 +171,13 @@ Whenever a ticket is created, modified, or moved, regenerate `BOARD.md`:
 python3 flatmark/board.py
 ```
 
+To verify whether `BOARD.md` is currently up to date without modifying it (useful for CI and pre-commit checks):
+
+```bash
+python3 flatmark/board.py --check
+```
+Exits `0` if up to date, or `1` if out of date or missing.
+
 ### 4. Archive Completed Tickets
 
 When a ticket is completed (`Done`) or retired (`Obsolete`):
@@ -219,6 +226,97 @@ directly into AI context (or referenced in rules like `.cursorrules`,
   `[#F1] Implement JWT validation`).
 - **Clear Acceptance Criteria**: Keep checklists in ticket bodies so agents can
   verify completion before marking status as `Done`.
+
+---
+
+## Avoiding Merge Conflicts on BOARD.md
+
+Because `BOARD.md` is an auto-generated file that updates whenever tickets change, parallel branches can conflict on it. FlatMark provides two strategies to handle this:
+
+### Option A: Keep BOARD.md Committed with `merge=ours` (Recommended)
+
+Tell Git to automatically preserve the current branch's version of `BOARD.md` during merges, then regenerate the board:
+
+1. Add to `.gitattributes` (the installer offers to do this automatically):
+   ```gitattributes
+   flatmark/BOARD.md merge=ours
+   ```
+
+2. Enable the `ours` merge driver in your Git configuration:
+   ```bash
+   git config merge.ours.driver true
+   ```
+
+3. After merging branches, regenerate the board:
+   ```bash
+   python3 flatmark/board.py
+   ```
+
+### Option B: Ignore BOARD.md in Version Control
+
+If your team prefers not to commit auto-generated files:
+
+1. Add `flatmark/BOARD.md` to `.gitignore`:
+   ```gitignore
+   flatmark/BOARD.md
+   ```
+
+2. Generate the board locally on demand whenever you want to inspect progress:
+   ```bash
+   python3 flatmark/board.py
+   ```
+
+---
+
+## Pre-Commit Hooks & CI Integration
+
+### 1. Pre-Commit Hook
+
+Ensure `BOARD.md` is fresh and all tickets pass linting before committing.
+
+Using [pre-commit](https://pre-commit.com/):
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: flatmark-board-check
+        name: check flatmark board freshness
+        entry: python3 flatmark/board.py --check
+        language: system
+        files: ^flatmark/
+        pass_filenames: false
+      - id: flatmark-lint
+        name: lint flatmark tickets
+        entry: python3 flatmark/flatmark.py lint
+        language: system
+        files: ^flatmark/
+        pass_filenames: false
+```
+
+Or using a standard `.git/hooks/pre-commit` script:
+
+```bash
+#!/bin/sh
+python3 flatmark/board.py --check || {
+    echo "Error: flatmark/BOARD.md is out of date. Run 'python3 flatmark/board.py' to update it."
+    exit 1
+}
+python3 flatmark/flatmark.py lint || exit 1
+```
+
+### 2. GitHub Actions CI Snippet
+
+In `.github/workflows/ci.yml`:
+
+```yaml
+- name: Verify FlatMark BOARD.md is up to date
+  run: python3 flatmark/board.py --check
+
+- name: Lint FlatMark tickets
+  run: python3 flatmark/flatmark.py lint
+```
 
 ---
 

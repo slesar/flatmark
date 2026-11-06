@@ -57,7 +57,7 @@ def parse_yaml(content):
             data[key.strip()] = value.strip()
     return data
 
-def update_board():
+def update_board(check=False):
     if not os.path.exists(tickets_dir):
         print(f"Error: {tickets_dir} not found.", file=sys.stderr)
         return False
@@ -224,6 +224,24 @@ def update_board():
 
     board_content = "\n".join(board_lines)
 
+    if check:
+        if not os.path.exists(board_path):
+            print(f"Error: {board_path} does not exist. Run board.py to generate it.", file=sys.stderr)
+            return False
+        try:
+            with open(board_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+        except OSError as e:
+            print(f"Error: Could not read {board_path}: {e}", file=sys.stderr)
+            return False
+
+        if existing_content.strip() != board_content.strip():
+            print(f"Error: {board_path} is out of date. Run 'python3 flatmark/board.py' to update it.", file=sys.stderr)
+            return False
+
+        print(f"{board_path} is up to date.")
+        return True
+
     # Saving the file
     with open(board_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(board_content)
@@ -235,5 +253,15 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ["--version", "-v"]:
         print(f"FlatMark v{get_version()}")
         sys.exit(0)
-    if not update_board():
+    if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
+        print("Usage: python3 flatmark/board.py [--check]")
+        print("\nRegenerate or verify BOARD.md ticket board.")
+        print("\nOptions:")
+        print("  --check, -c    Check if BOARD.md is up to date without modifying it")
+        print("  -v, --version  Show version")
+        print("  -h, --help     Show this help message")
+        sys.exit(0)
+
+    check_mode = ("--check" in sys.argv or "-c" in sys.argv)
+    if not update_board(check=check_mode):
         sys.exit(1)
