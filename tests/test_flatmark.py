@@ -675,6 +675,95 @@ class TestInstall(unittest.TestCase):
         # Count occurrences of merge=ours
         self.assertEqual(content.count("flatmark/BOARD.md merge=ours"), 1)
 
+    def test_install_nonexistent_target_fails_and_exits_nonzero(self):
+        # B11: Non-existent target without --create must fail with clear error and not create directory
+        nonexistent = os.path.join(self.test_root, "typo_dir", "sub")
+        stderr_buf = io.StringIO()
+
+        with patch("sys.stdin.isatty", return_value=False), \
+             redirect_stderr(stderr_buf), \
+             self.assertRaises(SystemExit) as cm:
+            install.install(nonexistent)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertFalse(os.path.exists(nonexistent))
+        err_out = stderr_buf.getvalue()
+        self.assertIn("does not exist", err_out)
+        self.assertIn("--create", err_out)
+
+    def test_install_nonexistent_target_with_create_flag(self):
+        # B11: create=True creates the directory explicitly
+        nonexistent = os.path.join(self.test_root, "new_project")
+
+        with patch("sys.stdin.isatty", return_value=False):
+            install.install(nonexistent, create=True)
+
+        self.assertTrue(os.path.isdir(nonexistent))
+        self.assertTrue(os.path.isdir(os.path.join(nonexistent, "flatmark")))
+        self.assertTrue(os.path.isfile(os.path.join(nonexistent, "flatmark", "BOARD.md")))
+
+    def test_install_nonexistent_target_interactive_prompt_accepted(self):
+        # B11: Interactive prompt creates directory if user accepts
+        nonexistent = os.path.join(self.test_root, "interactive_proj")
+
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="y"):
+            install.install(nonexistent)
+
+        self.assertTrue(os.path.isdir(nonexistent))
+        self.assertTrue(os.path.isdir(os.path.join(nonexistent, "flatmark")))
+
+    def test_install_nonexistent_target_interactive_prompt_declined(self):
+        # B11: Interactive prompt does not create directory if user declines
+        nonexistent = os.path.join(self.test_root, "declined_proj")
+
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="n"), \
+             self.assertRaises(SystemExit) as cm:
+            install.install(nonexistent)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertFalse(os.path.exists(nonexistent))
+
+    def test_install_target_is_file_fails(self):
+        # B11: Target path that is an existing file must fail
+        file_path = os.path.join(self.test_root, "file.txt")
+        with open(file_path, "w") as f:
+            f.write("content")
+
+        with patch("sys.stdin.isatty", return_value=False), \
+             self.assertRaises(SystemExit) as cm:
+            install.install(file_path)
+
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_install_cli_subprocess_create_flag(self):
+        # B11: CLI subprocess with and without --create
+        installer_script = os.path.join(REPO_ROOT, "install.py")
+        nonexistent = os.path.join(self.test_root, "cli_nonexistent")
+
+        # Without --create (non-interactive): fails and does not create dir
+        proc_fail = subprocess.run(
+            [sys.executable, installer_script, nonexistent],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc_fail.returncode, 1)
+        self.assertIn("does not exist", proc_fail.stderr)
+        self.assertFalse(os.path.exists(nonexistent))
+
+        # With --create: succeeds and creates dir
+        proc_success = subprocess.run(
+            [sys.executable, installer_script, "--create", nonexistent],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc_success.returncode, 0)
+        self.assertTrue(os.path.isdir(nonexistent))
+        self.assertTrue(os.path.isdir(os.path.join(nonexistent, "flatmark")))
+
 
 class TestAgentsDoc(unittest.TestCase):
     def test_payload_agents_doc_content(self):

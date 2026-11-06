@@ -150,11 +150,46 @@ def configure_gitattributes(target_root, dest_dir):
         print("  And enable the driver: git config merge.ours.driver true")
         print("  After merging branches, regenerate with: python3 flatmark/board.py")
 
-def install(target_root=None, base_url=None):
+def install(target_root=None, base_url=None, create=False):
     if target_root is None:
         target_root = os.getcwd()
     else:
         target_root = os.path.abspath(target_root)
+
+    create = create or ("--create" in sys.argv)
+
+    if not os.path.exists(target_root):
+        if create:
+            try:
+                os.makedirs(target_root, exist_ok=True)
+                print(f"Created target directory: {target_root}")
+            except OSError as e:
+                print(f"Error: Could not create target directory '{target_root}': {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            should_create = False
+            if sys.stdin.isatty():
+                try:
+                    resp = input(f"Target directory '{target_root}' does not exist. Create it? (y/N): ").strip().lower()
+                    should_create = (resp == "y")
+                except EOFError:
+                    should_create = False
+
+            if should_create:
+                try:
+                    os.makedirs(target_root, exist_ok=True)
+                    print(f"Created target directory: {target_root}")
+                except OSError as e:
+                    print(f"Error: Could not create target directory '{target_root}': {e}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print(f"Error: Target directory '{target_root}' does not exist.", file=sys.stderr)
+                print("Use --create to create it automatically.", file=sys.stderr)
+                sys.exit(1)
+
+    if not os.path.isdir(target_root):
+        print(f"Error: Target path '{target_root}' is not a directory.", file=sys.stderr)
+        sys.exit(1)
 
     source_dir = get_local_source_dir()
     dest_dir = os.path.join(target_root, "flatmark")
@@ -238,6 +273,17 @@ if __name__ == "__main__":
         print(f"FlatMark Installer v{ver}")
         sys.exit(0)
 
+    if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
+        print("Usage: python3 install.py [--create] [--gitattributes] [target_path]")
+        print("\nInstall or upgrade FlatMark in the specified project directory.")
+        print("\nOptions:")
+        print("  --create        Create target directory if it does not exist")
+        print("  --gitattributes Configure merge=ours in .gitattributes without prompting")
+        print("  -v, --version   Show FlatMark installer version")
+        print("  -h, --help      Show this help message")
+        sys.exit(0)
+
     positional = [a for a in sys.argv[1:] if not a.startswith("-")]
     target = positional[0] if positional else None
-    install(target)
+    create_flag = "--create" in sys.argv
+    install(target, create=create_flag)

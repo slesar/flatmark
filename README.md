@@ -86,6 +86,25 @@ python3 /path/to/flatmark/install.py /path/to/my-project
 This creates the `flatmark/` directory with initialized folders (`tickets/`,
 `archive/`), core scripts, guidelines, and an initial `BOARD.md`.
 
+### Installer Options
+
+| Flag | Description |
+| :--- | :--- |
+| `--create` | Automatically create the target directory if it does not exist. |
+| `--gitattributes` | Automatically configure `merge=ours` in `.gitattributes` without prompting. |
+| `-v`, `--version` | Display FlatMark installer version. |
+| `-h`, `--help` | Show usage and options. |
+
+By default, `install.py` requires the target project root to exist to avoid accidental directory creation from typos. If the directory does not exist, the installer prompts for confirmation in interactive sessions or fails with a non-zero exit code unless `--create` is passed:
+
+```bash
+# Create target directory automatically:
+python3 /path/to/flatmark/install.py --create /path/to/my-project
+
+# Or with the curl one-liner:
+curl -fsSL https://raw.githubusercontent.com/slesar/flatmark/main/install.py | python3 - --create /path/to/my-project
+```
+
 ### In-Place Upgrade
 
 Upgrades are completely non-destructive and use the exact same command (via `curl`/`wget` or local `install.py`).

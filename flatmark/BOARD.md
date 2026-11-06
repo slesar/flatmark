@@ -6,7 +6,6 @@
 | [[B5] Blocker links break when blocker is archived](tickets/B5.md) | P2 |  | ⏳ Todo |
 | [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |
 | [[B10] new.py may overwrite an existing ticket file](tickets/B10.md) | P2 |  | ⏳ Todo |
-| [[B11] install.py silently creates non-existent target directory](tickets/B11.md) | P3 |  | ⏳ Todo |
 | [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |
 | [[F3] Unified flatmark CLI with agent-friendly verbs](tickets/F3.md) | P2 | [T3](tickets/T3.md) | ⏳ Todo |
 | [[F5] Board UX: status icons, resolved blockers, summary](tickets/F5.md) | P3 | [B5](tickets/B5.md) | ⏳ Todo |

@@ -33,9 +33,12 @@ wget -qO- https://raw.githubusercontent.com/slesar/flatmark/main/install.py | py
 
 # Or from a local clone of flatmark:
 python3 /path/to/flatmark/install.py /path/to/target-project
+
+# Use --create if the target directory does not exist yet:
+python3 /path/to/flatmark/install.py --create /path/to/target-project
 ```
 
-- **Fresh Install**: Creates the `flatmark/` directory containing `tickets/`, `archive/`, core scripts, and an initial `BOARD.md`.
+- **Fresh Install**: Creates the `flatmark/` directory containing `tickets/`, `archive/`, core scripts, and an initial `BOARD.md`. By default, `install.py` requires the target project root to exist (or use `--create` to create it).
 - **In-Place Upgrade**: Upgrades safely update system scripts (`board.py`, `new.py`, `AGENTS.md`) and `VERSION`, followed by an automatic board refresh.
 - **Safety Guarantees**: Existing tickets in `tickets/`, `archive/`, and project-specific `AGENTS.local.md` are **never** overwritten or deleted.
 
