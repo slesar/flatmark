@@ -10,6 +10,7 @@
 | [[F3] Unified flatmark CLI with agent-friendly verbs](tickets/F3.md) | P2 | [T3](tickets/T3.md) | ⏳ Todo |
 | [[F5] Board UX: status icons, resolved blockers, summary](tickets/F5.md) | P3 | [B5](tickets/B5.md) | ⏳ Todo |
 | [[F6] Installer trust: pinned versions, checksums, pipx/uvx](tickets/F6.md) | P2 |  | ⏳ Todo |
+| [[F7] Agent workflow for archive compression and architectural decisions ledger](tickets/F7.md) | P2 |  | ⏳ Todo |
 | [[T2] Repository housekeeping: version fallback, dead code, release tags](tickets/T2.md) | P3 |  | ⏳ Todo |
 | [[T3] Refactor core scripts to modern Python practices](tickets/T3.md) | P2 |  | ⏳ Todo |
 | [[T4] Improve test suite coverage and structure](tickets/T4.md) | P2 |  | ⏳ Todo |
