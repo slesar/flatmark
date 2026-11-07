@@ -13,4 +13,3 @@ import flatmark
 
 if __name__ == "__main__":
     sys.exit(flatmark.lint_main(sys.argv[1:]))
-

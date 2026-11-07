@@ -9,6 +9,8 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr
+from dataclasses import FrozenInstanceError
+from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1115,6 +1117,155 @@ status: Todo
         )
         self.assertEqual(proc3.returncode, 1)
         self.assertIn("T1.md:3: unknown priority 'P9'", proc3.stdout)
+
+
+class TestModernRefactoring(unittest.TestCase):
+    """Tests for modern Python refactoring (T3): dataclasses, explicit paths, pure rendering, atomic writes, CLIs."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.test_dir)
+        self.tickets_dir = self.root_path / "tickets"
+        self.archive_dir = self.root_path / "archive"
+        self.tickets_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        (self.root_path / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_ticket_dataclass(self):
+        ticket = board.Ticket(
+            key="T1",
+            id="T1",
+            title="Clean Architecture",
+            priority="P1",
+            status="Todo",
+            filename="T1.md",
+        )
+        self.assertEqual(ticket.id, "T1")
+        self.assertEqual(ticket.priority, "P1")
+        self.assertEqual(ticket.status, "Todo")
+        self.assertEqual(ticket.blocked_by, "")
+        self.assertEqual(ticket.parent, "")
+        self.assertEqual(ticket.display_title, "")
+
+        # Ticket must be frozen/immutable
+        with self.assertRaises(FrozenInstanceError):
+            ticket.title = "Mutated"  # type: ignore[misc]
+
+    def test_separation_of_concerns_pipeline(self):
+        # 1. Prepare ticket files
+        (self.tickets_dir / "F1.md").write_text(
+            "---\nid: F1\npriority: P1\nstatus: In Progress\n---\n# Feature Root\n",
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P2\nstatus: Todo\nparent: F1\nblocked by: B1\n---\n# Child Task\n",
+            encoding="utf-8",
+        )
+
+        # 2. load_tickets
+        tickets_map = board.load_tickets(self.tickets_dir)
+        self.assertEqual(len(tickets_map), 2)
+        self.assertIn("F1", tickets_map)
+        self.assertIn("T1", tickets_map)
+        self.assertIsInstance(tickets_map["F1"], board.Ticket)
+
+        # 3. build_tree
+        tree = board.build_tree(tickets_map)
+        self.assertEqual(len(tree), 2)
+        self.assertEqual(tree[0].id, "F1")
+        self.assertEqual(tree[0].display_title, "[F1] Feature Root")
+        self.assertEqual(tree[1].id, "T1")
+        self.assertEqual(tree[1].display_title, "└── [T1] Child Task")
+
+        # 4. render_board (pure)
+        rendered = board.render_board(tree, version="0.2.0")
+        self.assertIn("# Ticket Board", rendered)
+        self.assertIn("└── [T1] Child Task", rendered)
+        self.assertIn("*Generated with FlatMark v0.2.0*", rendered)
+
+        # 5. write_board
+        board_file = self.root_path / "BOARD.md"
+        board.write_board(board_file, rendered)
+        self.assertTrue(board_file.is_file())
+        self.assertEqual(board_file.read_text(encoding="utf-8"), rendered)
+
+    def test_load_tickets_nonexistent_raises_filenotfound(self):
+        missing_dir = self.root_path / "does_not_exist"
+        with self.assertRaises(FileNotFoundError):
+            board.load_tickets(missing_dir)
+
+    def test_explicit_root_path_without_patching(self):
+        # Create ticket via new.create_ticket using explicit root: Path argument
+        next_id, ticket_path = new.create_ticket(
+            prefix="T",
+            title="Explicit Path Ticket",
+            root=self.root_path,
+        )
+        self.assertEqual(next_id, "T1")
+        self.assertTrue(ticket_path.is_file())
+        self.assertIn("id: T1", ticket_path.read_text(encoding="utf-8"))
+
+        # Board was updated automatically with explicit root
+        board_file = self.root_path / "BOARD.md"
+        self.assertTrue(board_file.is_file())
+        self.assertIn("[T1] Explicit Path Ticket", board_file.read_text(encoding="utf-8"))
+
+        # Verify update_board check mode with explicit root
+        self.assertTrue(board.update_board(root=self.root_path, check=True))
+
+        # Next ID with explicit root
+        next_t = new.get_next_id("T", root=self.root_path)
+        self.assertEqual(next_t, "T2")
+
+    def test_cli_argparse_flags_and_exit_codes(self):
+        board_script = os.path.join(SRC_DIR, "board.py")
+        new_script = os.path.join(SRC_DIR, "new.py")
+        install_script = os.path.join(REPO_ROOT, "install.py")
+
+        # board.py --help
+        proc = subprocess.run([sys.executable, board_script, "--help"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("usage:", proc.stdout.lower())
+        self.assertIn("--check", proc.stdout)
+
+        # board.py --version
+        proc = subprocess.run([sys.executable, board_script, "--version"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("FlatMark v", proc.stdout)
+
+        # new.py --help
+        proc = subprocess.run([sys.executable, new_script, "--help"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("usage:", proc.stdout.lower())
+
+        # new.py --version
+        proc = subprocess.run([sys.executable, new_script, "--version"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("FlatMark v", proc.stdout)
+
+        # new.py missing arguments exits 2
+        proc = subprocess.run([sys.executable, new_script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+
+        # install.py --help
+        proc = subprocess.run([sys.executable, install_script, "--help"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("usage:", proc.stdout.lower())
+        self.assertIn("--create", proc.stdout)
+
+        # install.py --version
+        proc = subprocess.run([sys.executable, install_script, "--version"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("FlatMark Installer v", proc.stdout)
+
+    def test_remote_fetch_error_raises_exception_no_sys_exit(self):
+        # Fetching a bad URL raises RemoteFetchError instead of calling sys.exit
+        with self.assertRaises(install.RemoteFetchError):
+            install.fetch_remote_file("VERSION", base_url="http://127.0.0.1:1")
+
 
 if __name__ == "__main__":
     unittest.main()
