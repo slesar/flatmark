@@ -208,11 +208,11 @@ def install(target_root=None, base_url=None, create=False):
 
     remote_files = {}
     if source_dir:
-        source_version = read_version(source_dir) or "0.1.0"
+        source_version = read_version(source_dir) or "0.2.0"
     else:
         for filename in CORE_FILES:
             remote_files[filename] = fetch_remote_file(filename, base_url=base_url)
-        source_version = remote_files["VERSION"].decode("utf-8").strip() or "0.1.0"
+        source_version = remote_files["VERSION"].decode("utf-8").strip() or "0.2.0"
 
     archive_dir = os.path.join(dest_dir, "archive")
     tickets_dir = os.path.join(dest_dir, "tickets")

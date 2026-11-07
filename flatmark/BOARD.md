@@ -18,4 +18,4 @@
 | [[T6] Use git mv when archiving tickets to preserve rename history](tickets/T6.md) | P2 |  | ⏳ Todo |
 
 ---
-*Generated with FlatMark v0.1.0*
+*Generated with FlatMark v0.2.0*
