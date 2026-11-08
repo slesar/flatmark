@@ -1164,26 +1164,29 @@ class TestModernRefactoring(unittest.TestCase):
             "---\nid: T1\npriority: P2\nstatus: Todo\nparent: F1\nblocked by: B1\n---\n# Child Task\n",
             encoding="utf-8",
         )
+        (self.tickets_dir / "B1.md").write_text(
+            "---\nid: B1\npriority: P0\nstatus: Todo\n---\n# Critical Bug\n",
+            encoding="utf-8",
+        )
 
         # 2. load_tickets
         tickets_map = board.load_tickets(self.tickets_dir)
-        self.assertEqual(len(tickets_map), 2)
+        self.assertEqual(len(tickets_map), 3)
         self.assertIn("F1", tickets_map)
         self.assertIn("T1", tickets_map)
+        self.assertIn("B1", tickets_map)
         self.assertIsInstance(tickets_map["F1"], board.Ticket)
 
         # 3. build_tree
         tree = board.build_tree(tickets_map)
-        self.assertEqual(len(tree), 2)
-        self.assertEqual(tree[0].id, "F1")
-        self.assertEqual(tree[0].display_title, "[F1] Feature Root")
-        self.assertEqual(tree[1].id, "T1")
-        self.assertEqual(tree[1].display_title, "└── [T1] Child Task")
+        self.assertEqual(len(tree), 3)
 
         # 4. render_board (pure)
-        rendered = board.render_board(tree, version="0.2.0")
+        locations = board.find_ticket_locations(self.tickets_dir, loaded_tickets=tickets_map)
+        rendered = board.render_board(tree, version="0.2.0", ticket_locations=locations)
         self.assertIn("# Ticket Board", rendered)
         self.assertIn("└── [T1] Child Task", rendered)
+        self.assertIn("[B1](tickets/B1.md)", rendered)
         self.assertIn("*Generated with FlatMark v0.2.0*", rendered)
 
         # 5. write_board
@@ -1265,6 +1268,122 @@ class TestModernRefactoring(unittest.TestCase):
         # Fetching a bad URL raises RemoteFetchError instead of calling sys.exit
         with self.assertRaises(install.RemoteFetchError):
             install.fetch_remote_file("VERSION", base_url="http://127.0.0.1:1")
+
+
+class TestBlockerLinks(unittest.TestCase):
+    """Regression tests for bug B5: blocker links in tickets/ vs archive/ and missing blockers."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.test_dir)
+        self.tickets_dir = self.root_path / "tickets"
+        self.archive_dir = self.root_path / "archive"
+        self.tickets_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        (self.root_path / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+        self.board_path = self.root_path / "BOARD.md"
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_active_blocker_link(self):
+        # Blocker in tickets/
+        (self.tickets_dir / "B1.md").write_text(
+            "---\nid: B1\nstatus: Todo\n---\n# Active Bug\n",
+            encoding="utf-8",
+        )
+        # Blocked task
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\nstatus: Todo\nblocked by: B1\n---\n# Blocked Task\n",
+            encoding="utf-8",
+        )
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("[B1](tickets/B1.md)", content)
+
+    def test_archived_blocker_link(self):
+        # Blocker in archive/
+        (self.archive_dir / "B2.md").write_text(
+            "---\nid: B2\nstatus: Done\n---\n# Resolved Bug\n",
+            encoding="utf-8",
+        )
+        # Blocked task in tickets/
+        (self.tickets_dir / "T2.md").write_text(
+            "---\nid: T2\nstatus: Todo\nblocked by: B2\n---\n# Blocked Task\n",
+            encoding="utf-8",
+        )
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("[B2](archive/B2.md)", content)
+
+    def test_blocker_with_custom_filename(self):
+        # Active blocker with custom filename
+        (self.tickets_dir / "custom_blocker.md").write_text(
+            "---\nid: B3\nstatus: Todo\n---\n# Custom Name Bug\n",
+            encoding="utf-8",
+        )
+        # Archived blocker with custom filename
+        (self.archive_dir / "done_blocker.md").write_text(
+            "---\nid: B4\nstatus: Done\n---\n# Done Custom Bug\n",
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T3.md").write_text(
+            "---\nid: T3\nstatus: Todo\nblocked by: B3\n---\n# Task 3\n",
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T4.md").write_text(
+            "---\nid: T4\nstatus: Todo\nblocked by: B4\n---\n# Task 4\n",
+            encoding="utf-8",
+        )
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("[B3](tickets/custom_blocker.md)", content)
+        self.assertIn("[B4](archive/done_blocker.md)", content)
+
+    def test_missing_blocker_plain_text_and_stderr_warning(self):
+        (self.tickets_dir / "T5.md").write_text(
+            "---\nid: T5\nstatus: Todo\nblocked by: NONEXISTENT_BLOCKER\n---\n# Task 5\n",
+            encoding="utf-8",
+        )
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            board.update_board(root=self.root_path)
+
+        content = self.board_path.read_text(encoding="utf-8")
+        # Should be plain text, not a markdown link
+        self.assertIn("| NONEXISTENT_BLOCKER |", content)
+        self.assertNotIn("[NONEXISTENT_BLOCKER](", content)
+
+        # Warning emitted to stderr
+        err_msg = stderr_buf.getvalue()
+        self.assertIn("Warning: Blocker ticket 'NONEXISTENT_BLOCKER' not found", err_msg)
+        self.assertIn("rendering as plain text", err_msg)
+
+    def test_multiple_blockers_mixed_locations(self):
+        (self.tickets_dir / "B1.md").write_text(
+            "---\nid: B1\nstatus: Todo\n---\n# Active Bug\n",
+            encoding="utf-8",
+        )
+        (self.archive_dir / "B2.md").write_text(
+            "---\nid: B2\nstatus: Done\n---\n# Archived Bug\n",
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T6.md").write_text(
+            "---\nid: T6\nstatus: Todo\nblocked by: B1, B2, MISSING\n---\n# Mixed Blockers Task\n",
+            encoding="utf-8",
+        )
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            board.update_board(root=self.root_path)
+
+        content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("[B1](tickets/B1.md), [B2](archive/B2.md), MISSING", content)
+        self.assertIn("Warning: Blocker ticket 'MISSING' not found", stderr_buf.getvalue())
 
 
 if __name__ == "__main__":

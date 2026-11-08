@@ -35,6 +35,7 @@ DEFAULT_BASE_DIR: Path = Path(__file__).resolve().parent
 # Module-level paths for backward compatibility with tests using patch.object
 base_dir: str = str(DEFAULT_BASE_DIR)
 tickets_dir: str = str(DEFAULT_BASE_DIR / "tickets")
+archive_dir: str = str(DEFAULT_BASE_DIR / "archive")
 board_path: str = str(DEFAULT_BASE_DIR / "BOARD.md")
 version_path: str = str(DEFAULT_BASE_DIR / "VERSION")
 
@@ -113,27 +114,38 @@ def get_version(root_or_file: Path | str | None = None) -> str:
 
 def _resolve_paths(
     root: Path | str | None,
-) -> tuple[Path, Path, Path, Path]:
-    """Resolve base directory, tickets directory, board path, and version path.
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Resolve base directory, tickets directory, archive directory, board path, and version path.
 
     Honors root if supplied, or falls back to module globals if patched in tests.
     """
     if root is not None:
         r = Path(root).resolve()
         if (r / "tickets").is_dir():
-            return r, r / "tickets", r / "BOARD.md", r / "VERSION"
+            return r, r / "tickets", r / "archive", r / "BOARD.md", r / "VERSION"
         if (r / "flatmark" / "tickets").is_dir():
             return (
                 r / "flatmark",
                 r / "flatmark" / "tickets",
+                r / "flatmark" / "archive",
                 r / "flatmark" / "BOARD.md",
                 r / "flatmark" / "VERSION",
             )
-        return r, r / "tickets", r / "BOARD.md", r / "VERSION"
+        return r, r / "tickets", r / "archive", r / "BOARD.md", r / "VERSION"
+
+    t_path = Path(tickets_dir)
+    if (
+        archive_dir == str(DEFAULT_BASE_DIR / "archive")
+        and tickets_dir != str(DEFAULT_BASE_DIR / "tickets")
+    ):
+        a_path = t_path.parent / "archive"
+    else:
+        a_path = Path(archive_dir)
 
     return (
         Path(base_dir),
-        Path(tickets_dir),
+        t_path,
+        a_path,
         Path(board_path),
         Path(version_path),
     )
@@ -320,8 +332,67 @@ def build_tree(tickets_by_key: dict[str, Ticket]) -> list[Ticket]:
     return tickets_data
 
 
-def render_board(tickets: Sequence[Ticket], version: str | None = None) -> str:
+def find_ticket_locations(
+    tickets_directory: Path,
+    archive_directory: Path | None = None,
+    loaded_tickets: dict[str, Ticket] | None = None,
+) -> dict[str, str]:
+    """Map ticket IDs and file stems to relative Markdown paths from the board.
+
+    Looks in tickets_directory (e.g. 'tickets/foo.md') and archive_directory
+    (e.g. 'archive/bar.md'). Active tickets take precedence over archived tickets.
+    """
+    locations: dict[str, str] = {}
+
+    if archive_directory is not None and archive_directory.is_dir():
+        for file_path in sorted(
+            archive_directory.glob("*.md"), key=lambda p: natural_sort_key(p.name)
+        ):
+            locations[file_path.stem] = f"archive/{file_path.name}"
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                yaml_data = parse_yaml(content)
+                tid = yaml_data.get("id")
+                if tid:
+                    locations[tid] = f"archive/{file_path.name}"
+            except OSError:
+                pass
+
+    if loaded_tickets is not None:
+        for ticket in loaded_tickets.values():
+            locations[ticket.id] = f"tickets/{ticket.filename}"
+            locations[ticket.key] = f"tickets/{ticket.filename}"
+    elif tickets_directory.is_dir():
+        for file_path in sorted(
+            tickets_directory.glob("*.md"), key=lambda p: natural_sort_key(p.name)
+        ):
+            locations[file_path.stem] = f"tickets/{file_path.name}"
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                yaml_data = parse_yaml(content)
+                tid = yaml_data.get("id")
+                if tid:
+                    locations[tid] = f"tickets/{file_path.name}"
+            except OSError:
+                pass
+
+    return locations
+
+
+def render_board(
+    tickets: Sequence[Ticket],
+    version: str | None = None,
+    ticket_locations: dict[str, str] | None = None,
+) -> str:
     """Pure function to render the Markdown table content for BOARD.md."""
+    if ticket_locations is None:
+        ticket_locations = {
+            ticket.id: f"tickets/{ticket.filename}" for ticket in tickets
+        }
+        ticket_locations.update(
+            {ticket.key: f"tickets/{ticket.filename}" for ticket in tickets}
+        )
+
     board_lines = [
         "# Ticket Board",
         "",
@@ -331,9 +402,24 @@ def render_board(tickets: Sequence[Ticket], version: str | None = None) -> str:
     for ticket in tickets:
         link = f"tickets/{ticket.filename}"
         blocked_by = ticket.blocked_by
-        blocked_link = (
-            f"[{blocked_by}](tickets/{blocked_by}.md)" if blocked_by else ""
-        )
+        if blocked_by:
+            blocker_keys = [b.strip() for b in blocked_by.split(",") if b.strip()]
+            rendered_blockers: list[str] = []
+            for b in blocker_keys:
+                if b in ticket_locations:
+                    rendered_blockers.append(
+                        f"[{escape_pipes(b)}]({ticket_locations[b]})"
+                    )
+                else:
+                    print(
+                        f"Warning: Blocker ticket '{b}' not found; rendering as plain text.",
+                        file=sys.stderr,
+                    )
+                    rendered_blockers.append(escape_cell(b))
+            blocked_link = ", ".join(rendered_blockers)
+        else:
+            blocked_link = ""
+
         row = (
             f"| [{escape_pipes(ticket.display_title)}]({link}) | "
             f"{escape_cell(ticket.priority)} | {blocked_link} | "
@@ -388,7 +474,7 @@ def update_board(
         check = root
         root = None
 
-    _, r_tickets, r_board, r_version = _resolve_paths(root)
+    r_base, r_tickets, r_archive, r_board, r_version = _resolve_paths(root)
 
     try:
         tickets_by_key = load_tickets(r_tickets)
@@ -398,7 +484,16 @@ def update_board(
 
     tree = build_tree(tickets_by_key)
     version = get_version(r_version)
-    board_content = render_board(tree, version=version)
+    ticket_locations = find_ticket_locations(
+        tickets_directory=r_tickets,
+        archive_directory=r_archive,
+        loaded_tickets=tickets_by_key,
+    )
+    board_content = render_board(
+        tree,
+        version=version,
+        ticket_locations=ticket_locations,
+    )
 
     if check:
         if not r_board.is_file():
