@@ -1,5 +1,6 @@
 import http.server
 import io
+import json
 import os
 import re
 import shutil
@@ -1382,8 +1383,138 @@ class TestBlockerLinks(unittest.TestCase):
             board.update_board(root=self.root_path)
 
         content = self.board_path.read_text(encoding="utf-8")
-        self.assertIn("[B1](tickets/B1.md), [B2](archive/B2.md), MISSING", content)
+        self.assertIn("[B1](tickets/B1.md), ~~[B2](archive/B2.md)~~, MISSING", content)
         self.assertIn("Warning: Blocker ticket 'MISSING' not found", stderr_buf.getvalue())
+
+
+class TestBoardUX(unittest.TestCase):
+    """Tests for board UX enhancements (F5): status icons, resolved blockers, summary line, grouping/sorting."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.test_dir)
+        self.tickets_dir = self.root_path / "tickets"
+        self.archive_dir = self.root_path / "archive"
+        self.tickets_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        (self.root_path / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+        self.board_path = self.root_path / "BOARD.md"
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_status_icons_and_blocked_determination(self):
+        # 1. Unblocked Todo ticket -> ⏳ Todo
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\nstatus: Todo\n---\n# Ready Task\n",
+            encoding="utf-8",
+        )
+        # 2. In Progress ticket -> 🔄 In Progress
+        (self.tickets_dir / "T2.md").write_text(
+            "---\nid: T2\nstatus: In Progress\n---\n# Active Task\n",
+            encoding="utf-8",
+        )
+        # 3. Blocked Todo ticket with active blocker -> 🚫 Blocked
+        (self.tickets_dir / "T3.md").write_text(
+            "---\nid: T3\nstatus: Todo\nblocked by: T1\n---\n# Blocked Task\n",
+            encoding="utf-8",
+        )
+        # 4. Todo ticket whose blocker is resolved in archive -> ⏳ Todo
+        (self.archive_dir / "B1.md").write_text(
+            "---\nid: B1\nstatus: Done\n---\n# Fixed Bug\n",
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T4.md").write_text(
+            "---\nid: T4\nstatus: Todo\nblocked by: B1\n---\n# Unblocked Task\n",
+            encoding="utf-8",
+        )
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+
+        # Status column assertions
+        self.assertIn("| [[T1] Ready Task](tickets/T1.md) | P2 |  | ⏳ Todo |", content)
+        self.assertIn("| [[T2] Active Task](tickets/T2.md) | P2 |  | 🔄 In Progress |", content)
+        self.assertIn("| [[T3] Blocked Task](tickets/T3.md) | P2 | [T1](tickets/T1.md) | 🚫 Blocked |", content)
+        self.assertIn("| [[T4] Unblocked Task](tickets/T4.md) | P2 | ~~[B1](archive/B1.md)~~ | ⏳ Todo |", content)
+
+    def test_summary_line(self):
+        # 4 open: 1 in progress, 1 blocked, 2 ready
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\nstatus: Todo\n---\n# T1\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\nstatus: In Progress\n---\n# T2\n", encoding="utf-8")
+        (self.tickets_dir / "T3.md").write_text("---\nid: T3\nstatus: Todo\nblocked by: T1\n---\n# T3\n", encoding="utf-8")
+        (self.tickets_dir / "T4.md").write_text("---\nid: T4\nstatus: Todo\n---\n# T4\n", encoding="utf-8")
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+
+        self.assertIn("4 open · 1 in progress · 1 blocked", content)
+
+    def test_sorting_by_priority(self):
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\npriority: P3\nstatus: Todo\n---\n# Low\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\npriority: P0\nstatus: Todo\n---\n# Urgent\n", encoding="utf-8")
+        (self.tickets_dir / "T3.md").write_text("---\nid: T3\npriority: P1\nstatus: Todo\n---\n# High\n", encoding="utf-8")
+
+        board.update_board(root=self.root_path, sort_by="priority")
+        content = self.board_path.read_text(encoding="utf-8")
+
+        pos_t2 = content.index("[T2]")
+        pos_t3 = content.index("[T3]")
+        pos_t1 = content.index("[T1]")
+        self.assertTrue(pos_t2 < pos_t3 < pos_t1)
+
+    def test_grouping_by_status(self):
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\nstatus: Todo\n---\n# T1\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\nstatus: In Progress\n---\n# T2\n", encoding="utf-8")
+        (self.tickets_dir / "T3.md").write_text("---\nid: T3\nstatus: Todo\nblocked by: T1\n---\n# T3\n", encoding="utf-8")
+
+        board.update_board(root=self.root_path, group_by="status")
+        content = self.board_path.read_text(encoding="utf-8")
+
+        self.assertIn("### 🔄 In Progress", content)
+        self.assertIn("### ⏳ Todo", content)
+        self.assertIn("### 🚫 Blocked", content)
+
+    def test_grouping_by_priority(self):
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\npriority: P0\nstatus: Todo\n---\n# P0 Task\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\npriority: P2\nstatus: Todo\n---\n# P2 Task\n", encoding="utf-8")
+
+        board.update_board(root=self.root_path, group_by="priority")
+        content = self.board_path.read_text(encoding="utf-8")
+
+        self.assertIn("### P0", content)
+        self.assertIn("### P2", content)
+        self.assertNotIn("### P1", content)
+
+    def test_config_file_controls_grouping_and_sorting(self):
+        (self.root_path / "flatmark.json").write_text(
+            json.dumps({"group_by": "status"}),
+            encoding="utf-8",
+        )
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\nstatus: Todo\n---\n# T1\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\nstatus: In Progress\n---\n# T2\n", encoding="utf-8")
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+
+        self.assertIn("### 🔄 In Progress", content)
+        self.assertIn("### ⏳ Todo", content)
+
+    def test_cli_flags_for_sort_and_group(self):
+        board_script = os.path.join(SRC_DIR, "board.py")
+        (self.tickets_dir / "T1.md").write_text("---\nid: T1\npriority: P2\nstatus: Todo\n---\n# T1\n", encoding="utf-8")
+        (self.tickets_dir / "T2.md").write_text("---\nid: T2\npriority: P0\nstatus: Todo\n---\n# T2\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            [sys.executable, board_script, "--sort", "priority", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        content = self.board_path.read_text(encoding="utf-8")
+        pos_t2 = content.index("[T2]")
+        pos_t1 = content.index("[T1]")
+        self.assertTrue(pos_t2 < pos_t1)
 
 
 if __name__ == "__main__":

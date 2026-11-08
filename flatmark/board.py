@@ -8,6 +8,7 @@ Generates and validates BOARD.md from ticket files in tickets/.
 from dataclasses import dataclass, replace
 from pathlib import Path
 import argparse
+import json
 import os
 import re
 import sys
@@ -379,10 +380,167 @@ def find_ticket_locations(
     return locations
 
 
+def _has_unresolved_blockers(
+    blocked_by: str,
+    ticket_locations: dict[str, str],
+) -> bool:
+    """Check if any blocker in blocked_by is unresolved (active or missing)."""
+    if not blocked_by:
+        return False
+    blockers = [b.strip() for b in blocked_by.split(",") if b.strip()]
+    if not blockers:
+        return False
+    for b in blockers:
+        is_resolved = (
+            b in ticket_locations
+            and ticket_locations[b].startswith("archive/")
+        )
+        if not is_resolved:
+            return True
+    return False
+
+
+def format_status_cell(
+    ticket: Ticket,
+    ticket_locations: dict[str, str],
+) -> str:
+    """Format status for table cell with consistent icons and blocked state."""
+    raw = ticket.status.strip()
+    clean = " ".join(raw.split())
+    for icon in ("⏳", "🔄", "🚫", "✅", "❌"):
+        clean = clean.replace(icon, "").strip()
+
+    is_blocked = _has_unresolved_blockers(ticket.blocked_by, ticket_locations)
+
+    if is_blocked and (clean in ("Todo", "Blocked", "") or clean.startswith("Todo")):
+        return "🚫 Blocked"
+
+    if clean == "Blocked" and not is_blocked:
+        return "⏳ Todo"
+
+    if clean.startswith("In Progress"):
+        return f"🔄 {clean}"
+    if clean.startswith("Todo"):
+        return f"⏳ {clean}"
+    if clean.startswith("Done"):
+        return f"✅ {clean}"
+    if clean.startswith("Obsolete"):
+        return f"❌ {clean}"
+
+    return escape_cell(clean)
+
+
+def format_blocked_by_cell(
+    ticket: Ticket,
+    ticket_locations: dict[str, str],
+) -> str:
+    """Format Blocked by cell: resolved blockers are struck through, missing produce warning."""
+    blocked_by = ticket.blocked_by
+    if not blocked_by:
+        return ""
+
+    blocker_keys = [b.strip() for b in blocked_by.split(",") if b.strip()]
+    rendered_blockers: list[str] = []
+    for b in blocker_keys:
+        if b in ticket_locations:
+            loc = ticket_locations[b]
+            link = f"[{escape_pipes(b)}]({loc})"
+            if loc.startswith("archive/"):
+                rendered_blockers.append(f"~~{link}~~")
+            else:
+                rendered_blockers.append(link)
+        else:
+            print(
+                f"Warning: Blocker ticket '{b}' not found; rendering as plain text.",
+                file=sys.stderr,
+            )
+            rendered_blockers.append(escape_cell(b))
+
+    return ", ".join(rendered_blockers)
+
+
+def compute_board_summary(
+    tickets: Sequence[Ticket],
+    ticket_locations: dict[str, str],
+) -> str:
+    """Compute summary string: e.g. '12 open · 3 in progress · 2 blocked'."""
+    total = len(tickets)
+    in_progress = 0
+    blocked = 0
+
+    for ticket in tickets:
+        raw = ticket.status.lower()
+        if "in progress" in raw:
+            in_progress += 1
+        elif _has_unresolved_blockers(ticket.blocked_by, ticket_locations) or "blocked" in raw:
+            blocked += 1
+
+    return f"{total} open · {in_progress} in progress · {blocked} blocked"
+
+
+def load_board_config(root: Path | None = None) -> dict[str, str]:
+    """Load optional board configuration from flatmark.json, config.json, or .flatmarkrc."""
+    if root is None:
+        return {}
+
+    candidates = [
+        root / "flatmark.json",
+        root / "config.json",
+        root / ".flatmarkrc",
+        root / "flatmark" / "config.json",
+    ]
+    for c in candidates:
+        if c.is_file():
+            try:
+                data = json.loads(c.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    res: dict[str, str] = {}
+                    if "sort" in data:
+                        res["sort"] = str(data["sort"])
+                    elif "sort_by" in data:
+                        res["sort"] = str(data["sort_by"])
+                    if "group_by" in data:
+                        res["group_by"] = str(data["group_by"])
+                    return res
+            except (OSError, ValueError):
+                pass
+    return {}
+
+
+def _render_table_rows(
+    tickets: Sequence[Ticket],
+    ticket_locations: dict[str, str],
+    flat_display: bool = False,
+) -> list[str]:
+    lines = [
+        "| Ticket | Priority | Blocked by | Status |",
+        "| :--- | :---: | :---: | :--- |",
+    ]
+    for ticket in tickets:
+        link = f"tickets/{ticket.filename}"
+        if flat_display:
+            title_text = f"[{ticket.id}] {ticket.title}"
+        else:
+            title_text = ticket.display_title or f"[{ticket.id}] {ticket.title}"
+
+        blocked_link = format_blocked_by_cell(ticket, ticket_locations)
+        status_text = format_status_cell(ticket, ticket_locations)
+
+        row = (
+            f"| [{escape_pipes(title_text)}]({link}) | "
+            f"{escape_cell(ticket.priority)} | {blocked_link} | "
+            f"{escape_cell(status_text)} |"
+        )
+        lines.append(row)
+    return lines
+
+
 def render_board(
     tickets: Sequence[Ticket],
     version: str | None = None,
     ticket_locations: dict[str, str] | None = None,
+    sort_by: str | None = None,
+    group_by: str | None = None,
 ) -> str:
     """Pure function to render the Markdown table content for BOARD.md."""
     if ticket_locations is None:
@@ -393,39 +551,135 @@ def render_board(
             {ticket.key: f"tickets/{ticket.filename}" for ticket in tickets}
         )
 
+    summary = compute_board_summary(tickets, ticket_locations)
     board_lines = [
         "# Ticket Board",
         "",
-        "| Ticket | Priority | Blocked by | Status |",
-        "| :--- | :---: | :---: | :--- |",
+        summary,
+        "",
     ]
-    for ticket in tickets:
-        link = f"tickets/{ticket.filename}"
-        blocked_by = ticket.blocked_by
-        if blocked_by:
-            blocker_keys = [b.strip() for b in blocked_by.split(",") if b.strip()]
-            rendered_blockers: list[str] = []
-            for b in blocker_keys:
-                if b in ticket_locations:
-                    rendered_blockers.append(
-                        f"[{escape_pipes(b)}]({ticket_locations[b]})"
-                    )
-                else:
-                    print(
-                        f"Warning: Blocker ticket '{b}' not found; rendering as plain text.",
-                        file=sys.stderr,
-                    )
-                    rendered_blockers.append(escape_cell(b))
-            blocked_link = ", ".join(rendered_blockers)
-        else:
-            blocked_link = ""
 
-        row = (
-            f"| [{escape_pipes(ticket.display_title)}]({link}) | "
-            f"{escape_cell(ticket.priority)} | {blocked_link} | "
-            f"{escape_cell(ticket.status)} |"
-        )
-        board_lines.append(row)
+    effective_group = (group_by or "none").lower()
+    effective_sort = (sort_by or "hierarchy").lower()
+
+    priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+    if effective_group == "status":
+        groups: dict[str, list[Ticket]] = {
+            "In Progress": [],
+            "Todo": [],
+            "Blocked": [],
+        }
+        for t in tickets:
+            st = format_status_cell(t, ticket_locations)
+            if "In Progress" in st:
+                groups["In Progress"].append(t)
+            elif "Blocked" in st:
+                groups["Blocked"].append(t)
+            else:
+                groups["Todo"].append(t)
+
+        labels = [
+            ("In Progress", "### 🔄 In Progress"),
+            ("Todo", "### ⏳ Todo"),
+            ("Blocked", "### 🚫 Blocked"),
+        ]
+        first = True
+        for key, header in labels:
+            group_list = groups[key]
+            if group_list:
+                if not first:
+                    board_lines.append("")
+                first = False
+                board_lines.append(header)
+                board_lines.append("")
+                sorted_group = sorted(
+                    group_list,
+                    key=lambda t: (
+                        priority_order.get(t.priority, 2),
+                        natural_sort_key(t.id),
+                    ),
+                )
+                board_lines.extend(
+                    _render_table_rows(sorted_group, ticket_locations, flat_display=True)
+                )
+
+    elif effective_group == "priority":
+        groups = {"P0": [], "P1": [], "P2": [], "P3": []}
+        others: list[Ticket] = []
+        for t in tickets:
+            p = t.priority.strip()
+            if p in groups:
+                groups[p].append(t)
+            else:
+                others.append(t)
+
+        p_labels = [
+            ("P0", "### P0"),
+            ("P1", "### P1"),
+            ("P2", "### P2"),
+            ("P3", "### P3"),
+        ]
+        first = True
+        for p_key, p_header in p_labels:
+            group_list = groups[p_key]
+            if group_list:
+                if not first:
+                    board_lines.append("")
+                first = False
+                board_lines.append(p_header)
+                board_lines.append("")
+                sorted_group = sorted(
+                    group_list,
+                    key=lambda t: natural_sort_key(t.id),
+                )
+                board_lines.extend(
+                    _render_table_rows(sorted_group, ticket_locations, flat_display=True)
+                )
+        if others:
+            if not first:
+                board_lines.append("")
+            board_lines.append("### Other Priority")
+            board_lines.append("")
+            board_lines.extend(
+                _render_table_rows(others, ticket_locations, flat_display=True)
+            )
+
+    else:
+        # Single table
+        if effective_sort == "priority":
+            sorted_tickets = sorted(
+                tickets,
+                key=lambda t: (
+                    priority_order.get(t.priority, 2),
+                    natural_sort_key(t.id),
+                ),
+            )
+            board_lines.extend(
+                _render_table_rows(sorted_tickets, ticket_locations, flat_display=True)
+            )
+        elif effective_sort == "status":
+            def status_sort_key(t: Ticket) -> tuple[int, int, list[int | str]]:
+                st = format_status_cell(t, ticket_locations)
+                if "In Progress" in st:
+                    s_weight = 0
+                elif "Todo" in st:
+                    s_weight = 1
+                elif "Blocked" in st:
+                    s_weight = 2
+                else:
+                    s_weight = 3
+                return (s_weight, priority_order.get(t.priority, 2), natural_sort_key(t.id))
+
+            sorted_tickets = sorted(tickets, key=status_sort_key)
+            board_lines.extend(
+                _render_table_rows(sorted_tickets, ticket_locations, flat_display=True)
+            )
+        else:
+            # Default: hierarchical tree
+            board_lines.extend(
+                _render_table_rows(tickets, ticket_locations, flat_display=False)
+            )
 
     if version and version != "unknown":
         board_lines.append("")
@@ -462,7 +716,10 @@ def write_board(destination: Path, content: str) -> None:
 
 
 def update_board(
-    root: Path | str | None = None, check: bool = False
+    root: Path | str | None = None,
+    check: bool = False,
+    sort_by: str | None = None,
+    group_by: str | None = None,
 ) -> bool:
     """Regenerate or verify BOARD.md ticket board.
 
@@ -482,6 +739,10 @@ def update_board(
         print(f"Error: {e}", file=sys.stderr)
         return False
 
+    cfg = load_board_config(r_base)
+    effective_sort = sort_by or cfg.get("sort") or "hierarchy"
+    effective_group = group_by or cfg.get("group_by") or "none"
+
     tree = build_tree(tickets_by_key)
     version = get_version(r_version)
     ticket_locations = find_ticket_locations(
@@ -493,6 +754,8 @@ def update_board(
         tree,
         version=version,
         ticket_locations=ticket_locations,
+        sort_by=effective_sort,
+        group_by=effective_group,
     )
 
     if check:
@@ -541,6 +804,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Check if BOARD.md is up to date without modifying it",
     )
     parser.add_argument(
+        "--sort",
+        "--sort-by",
+        dest="sort_by",
+        choices=["hierarchy", "priority", "status"],
+        default=None,
+        help="Sort tickets by hierarchy (default), priority, or status",
+    )
+    parser.add_argument(
+        "--group-by",
+        dest="group_by",
+        choices=["none", "status", "priority"],
+        default=None,
+        help="Group tickets into sections by status or priority",
+    )
+    parser.add_argument(
         "-v",
         "--version",
         action="version",
@@ -560,7 +838,12 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point for board.py."""
     parser = build_arg_parser()
     args = parser.parse_args(argv)
-    success = update_board(root=args.root, check=args.check)
+    success = update_board(
+        root=args.root,
+        check=args.check,
+        sort_by=args.sort_by,
+        group_by=args.group_by,
+    )
     return 0 if success else 1
 
 
