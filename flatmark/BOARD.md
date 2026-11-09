@@ -1,13 +1,12 @@
 # Ticket Board
 
-10 open · 0 in progress · 0 blocked
+9 open · 0 in progress · 0 blocked
 
 | Ticket | Priority | Blocked by | Status |
 | :--- | :---: | :---: | :--- |
 | [[B4] Multiple blockers produce a broken link](tickets/B4.md) | P2 |  | ⏳ Todo |
 | [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |
 | [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |
-| [[F3] Unified flatmark CLI with agent-friendly verbs](tickets/F3.md) | P2 | ~~[T3](archive/T3.md)~~ | ⏳ Todo |
 | [[F6] Installer trust: pinned versions, checksums, pipx/uvx](tickets/F6.md) | P2 |  | ⏳ Todo |
 | [[F7] Agent workflow for archive compression and architectural decisions ledger](tickets/F7.md) | P2 |  | ⏳ Todo |
 | [[T2] Repository housekeeping: version fallback, dead code, release tags](tickets/T2.md) | P3 |  | ⏳ Todo |

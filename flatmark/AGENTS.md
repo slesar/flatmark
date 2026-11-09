@@ -79,21 +79,26 @@ Acceptance criteria:
 
 ## 4. Explicit Agent Workflow Checklist
 
-When assigned or picking up a FlatMark ticket, AI agents MUST follow this exact sequence:
+When assigned or picking up a FlatMark ticket, AI agents SHOULD use deterministic FlatMark CLI commands:
 
 1. **Pick a Ticket**:
-   - Inspect `BOARD.md` or search `tickets/` to identify an unassigned ticket with `status: Todo`.
-   - Verify that the ticket is not blocked by another unfinished ticket (`blocked by`).
-2. **Claim the Ticket (`In Progress`)**:
-   - Open `flatmark/tickets/<ID>.md` and set:
-     ```yaml
-     status: In Progress
-     ```
-   - Synchronize the board immediately:
+   - Query the next unblocked ticket:
      ```bash
-     python3 flatmark/board.py
+     python3 flatmark/flatmark.py next
      ```
-   - *(Optional)* Stage or commit this change if working concurrently to signal that the ticket is claimed.
+   - Or query the backlog:
+     ```bash
+     python3 flatmark/flatmark.py list
+     ```
+   - Inspect ticket details:
+     ```bash
+     python3 flatmark/flatmark.py show <ID>
+     ```
+2. **Claim the Ticket (`start`)**:
+   - Claim the ticket in a single atomic step (sets `status: In Progress` and auto-regenerates `BOARD.md`):
+     ```bash
+     python3 flatmark/flatmark.py start <ID>
+     ```
 3. **Implement**:
    - Write code and unit tests fulfilling all requirements.
    - Preserve existing documentation and comments.
@@ -101,64 +106,118 @@ When assigned or picking up a FlatMark ticket, AI agents MUST follow this exact 
    - Run the project's test suite to ensure all tests pass.
    - Confirm all acceptance criteria in the ticket file are satisfied.
    - Check all criteria boxes in the ticket file from `- [ ]` to `- [x]`.
-5. **Archive Ticket (`Done` or `Obsolete`)**:
-   - Update frontmatter status:
-     ```yaml
-     status: Done
-     ```
-     *(or `status: Obsolete` if retiring without implementation)*.
-   - Move the file to `archive/`:
+5. **Complete and Archive Ticket (`done` or `obsolete`)**:
+   - Mark completed and move to `archive/` in one step (auto-regenerates `BOARD.md`):
      ```bash
-     mv flatmark/tickets/<ID>.md flatmark/archive/<ID>.md
+     python3 flatmark/flatmark.py done <ID>
      ```
-     *(Use `git mv` when working in a Git worktree to preserve rename history)*.
-6. **Synchronize the Board**:
-   - Re-run the board update script:
-     ```bash
-     python3 flatmark/board.py
-     ```
-   - Confirm the ticket has moved off the active table in `BOARD.md`.
-7. **Lint Tickets (Mandatory)**:
+     *(or `python3 flatmark/flatmark.py obsolete <ID>` if retiring without implementation)*.
+6. **Lint Tickets (Mandatory)**:
    - Run the ticket linter to ensure all tickets, frontmatter, and dependencies are valid:
      ```bash
      python3 flatmark/flatmark.py lint
      ```
-     *(Or `python3 flatmark/flatmark.py lint --fix` to auto-resolve safe issues like archiving completed tickets).*
+     *(Or `python3 flatmark/flatmark.py lint --fix` to auto-resolve safe issues).*
    - Confirm all lint issues are resolved and exit code is 0 before committing.
-8. **Commit Changes**:
+7. **Commit Changes**:
    - Include the ticket ID in the commit message:
      ```bash
      git commit -m "[#<ID>] Fix bug or implement feature"
      ```
 
-## 5. Usage from Project Root
+## 5. Unified CLI Usage from Project Root
 
-You can interact with FlatMark without leaving the project root:
+FlatMark provides a single unified entry point (`flatmark.py`) with agent-friendly verbs. All mutating commands automatically synchronize `BOARD.md`:
 
-- **Create a New Ticket**:
+- **Create Ticket**:
   ```bash
-  python3 flatmark/new.py [--scheme sequential|random] [T|B|F|S|R|D] "Ticket Title"
+  python3 flatmark/flatmark.py new [T|B|F|S|R|D] "Ticket Title" [--priority P] [--parent ID] [--blocked-by ID] [--scheme sequential|random]
   ```
-- **Update the Board**:
+- **Claim Ticket**:
   ```bash
-  python3 flatmark/board.py
-  # Check freshness without modifying BOARD.md (exits 1 if stale):
-  python3 flatmark/board.py --check
+  python3 flatmark/flatmark.py start <ID>
   ```
-- **Merge Conflict Prevention**:
-  To avoid merge conflicts on `BOARD.md` across parallel branches, configure `flatmark/BOARD.md merge=ours` in `.gitattributes` (`git config merge.ours.driver true`), or add `flatmark/BOARD.md` to `.gitignore` and generate on demand.
+- **Complete Ticket**:
+  ```bash
+  python3 flatmark/flatmark.py done <ID>
+  ```
+- **Retire Ticket**:
+  ```bash
+  python3 flatmark/flatmark.py obsolete <ID>
+  ```
+- **Find Next Ticket**:
+  ```bash
+  python3 flatmark/flatmark.py next [--json]
+  ```
+- **Inspect Ticket**:
+  ```bash
+  python3 flatmark/flatmark.py show <ID> [--json]
+  ```
+- **Query Backlog**:
+  ```bash
+  python3 flatmark/flatmark.py list [--status S] [--priority P] [--all] [--json]
+  ```
+- **Update or Check Board**:
+  ```bash
+  python3 flatmark/flatmark.py board
+  python3 flatmark/flatmark.py board --check
+  ```
 - **Lint Tickets**:
   ```bash
-  python3 flatmark/flatmark.py lint
-  # Or automatically fix safe issues:
-  python3 flatmark/flatmark.py lint --fix
+  python3 flatmark/flatmark.py lint [--fix]
   ```
 - **Check Version**:
   ```bash
-  python3 flatmark/board.py --version
+  python3 flatmark/flatmark.py --version
   ```
-- **Quick Search**:
-  Use `grep` or your IDE search across `tickets/` to find tickets by ID, keyword, parent, or status.
+*(Note: `board.py` and `new.py` remain available as backward-compatible wrappers).*
+
+### 5.1 JSON Output Schema
+
+When passing `--json` to `list`, `show`, or `next`, FlatMark outputs structured JSON:
+
+#### `show <id> --json` and `next --json`
+Returns a single ticket object (or `null` for `next --json` when no unblocked `Todo` ticket exists):
+```json
+{
+  "id": "F3",
+  "title": "Unified flatmark CLI with agent-friendly verbs",
+  "status": "In Progress",
+  "priority": "P2",
+  "parent": null,
+  "blocked_by": "T3",
+  "archived": false,
+  "path": "tickets/F3.md",
+  "body": "Description and acceptance criteria markdown..."
+}
+```
+
+#### `list --json`
+Returns an array of ticket summaries:
+```json
+[
+  {
+    "id": "B4",
+    "title": "Multiple blockers produce a broken link",
+    "status": "Todo",
+    "priority": "P2",
+    "parent": null,
+    "blocked_by": null,
+    "archived": false,
+    "path": "tickets/B4.md"
+  }
+]
+```
+
+- `id` *(string)*: Unique ticket identifier.
+- `title` *(string)*: Ticket title extracted from `# Title`.
+- `status` *(string)*: Lifecycle status (`Todo`, `In Progress`, `Done`, `Obsolete`).
+- `priority` *(string)*: Urgency level (`P0`, `P1`, `P2`, `P3`).
+- `parent` *(string | null)*: Parent ticket ID or `null`.
+- `blocked_by` *(string | null)*: Blocking ticket ID(s) or `null`.
+- `archived` *(boolean)*: `true` if located in `archive/`, `false` if in `tickets/`.
+- `path` *(string)*: Relative file path (e.g. `tickets/F3.md` or `archive/T3.md`).
+- `body` *(string, show/next only)*: Markdown content following the YAML frontmatter.
 
 ## 6. Ticket ID Prefixes & Schemes
 

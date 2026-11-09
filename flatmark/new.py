@@ -161,10 +161,13 @@ def create_ticket(
     title: str = "New Ticket",
     scheme: str = "sequential",
     root: Path | str | None = None,
+    priority: str = "P2",
+    parent: str | None = None,
+    blocked_by: str | None = None,
 ) -> tuple[str, Path]:
     """Create a new ticket file in exclusive mode and update BOARD.md.
 
-    Raises ValueError if prefix is invalid or scheme is unknown.
+    Raises ValueError if prefix is invalid, scheme is unknown, or priority is invalid.
     Raises FileExistsError if the computed ticket file already exists.
     Raises OSError if ticket cannot be written.
     """
@@ -174,17 +177,32 @@ def create_ticket(
             "Prefix must be T (Task), or B (Bug), F (Feature), S (Spike), R (Release), D (Documentation)"
         )
 
+    priority_clean = priority.strip().upper() if priority else "P2"
+    if priority_clean not in {"P0", "P1", "P2", "P3"}:
+        raise ValueError(
+            f"Invalid priority '{priority}'. Allowed values: P0, P1, P2, P3."
+        )
+
     r_base, r_tickets, _ = _resolve_paths(root)
     r_tickets.mkdir(parents=True, exist_ok=True)
 
     next_id = get_next_id(prefix_clean, scheme=scheme, root=root)
     file_path = r_tickets / f"{next_id}.md"
 
-    content = f"""---
-id: {next_id}
-priority: P2
-status: Todo
----
+    fm_lines = [
+        "---",
+        f"id: {next_id}",
+        f"priority: {priority_clean}",
+        "status: Todo",
+    ]
+    if parent and parent.strip():
+        fm_lines.append(f"parent: {parent.strip()}")
+    if blocked_by and blocked_by.strip():
+        fm_lines.append(f"blocked by: {blocked_by.strip()}")
+    fm_lines.append("---")
+    frontmatter = "\n".join(fm_lines)
+
+    content = f"""{frontmatter}
 # {title}
 
 Description goes here.
@@ -203,7 +221,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="new.py",
         description="Create a new FlatMark ticket template in tickets/.",
-        usage="python3 flatmark/new.py [--scheme sequential|random] [T|B|F|S|R|D] <Ticket Title>",
+        usage="python3 flatmark/new.py [--scheme sequential|random] [--priority P] [--parent ID] [--blocked-by ID] [T|B|F|S|R|D] <Ticket Title>",
+    )
+    parser.add_argument(
+        "--parent",
+        default=None,
+        help="Parent ticket ID",
+    )
+    parser.add_argument(
+        "--blocked-by",
+        default=None,
+        help="Blocking ticket ID(s)",
+    )
+    parser.add_argument(
+        "--priority",
+        default="P2",
+        help="Ticket priority: P0, P1, P2, P3 (default: P2)",
     )
     parser.add_argument(
         "--scheme",
@@ -272,6 +305,9 @@ def main(argv: list[str] | None = None) -> int:
             prefix=prefix,
             title=title,
             scheme=args.scheme,
+            priority=args.priority,
+            parent=args.parent,
+            blocked_by=args.blocked_by,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)

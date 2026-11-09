@@ -62,16 +62,16 @@ See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules, frontm
 
 ### Explicit Agent Workflow Checklist:
 1. **Pick a Ticket**:
-   - Inspect `flatmark/BOARD.md` or search `flatmark/tickets/` to identify an unassigned ticket with `status: Todo`.
-   - Verify that the ticket is not blocked by another unfinished ticket (`blocked by`).
-2. **Claim the Ticket (`In Progress`)**:
-   - Open `flatmark/tickets/<ID>.md` and set:
-     ```yaml
-     status: In Progress
-     ```
-   - Synchronize the board immediately:
+   - Query the next unblocked ticket:
      ```bash
-     python3 flatmark/board.py
+     python3 flatmark/flatmark.py next
+     ```
+   - Or inspect `flatmark/BOARD.md` / `python3 flatmark/flatmark.py list` to identify an unassigned ticket with `status: Todo`.
+   - Verify that the ticket is not blocked by another unfinished ticket (`blocked by`).
+2. **Claim the Ticket (`start`)**:
+   - Claim the ticket in a single step (marks `status: In Progress` and auto-regenerates `flatmark/BOARD.md`):
+     ```bash
+     python3 flatmark/flatmark.py start <ID>
      ```
 3. **Implement**:
    - Write code and unit tests fulfilling all requirements.
@@ -80,30 +80,20 @@ See [flatmark/AGENTS.md](flatmark/AGENTS.md) for ticket management rules, frontm
    - Run the test suite: `python3 -m unittest discover tests`.
    - Confirm all acceptance criteria in the ticket file are satisfied.
    - Check all criteria boxes in the ticket file from `- [ ]` to `- [x]`.
-5. **Archive Ticket (`Done` or `Obsolete`)**:
-   - Update frontmatter status:
-     ```yaml
-     status: Done
-     ```
-     *(or `status: Obsolete` if retiring without implementation)*.
-   - Move the file to `flatmark/archive/`:
+5. **Complete and Archive Ticket (`done` or `obsolete`)**:
+   - Mark completed and move to `flatmark/archive/` in one step (auto-regenerates `flatmark/BOARD.md`):
      ```bash
-     mv flatmark/tickets/<ID>.md flatmark/archive/<ID>.md
+     python3 flatmark/flatmark.py done <ID>
      ```
-6. **Synchronize the Board**:
-   - Re-run the board update script:
-     ```bash
-     python3 flatmark/board.py
-     ```
-   - Confirm the ticket has moved off the active table in `flatmark/BOARD.md` (or verify with `python3 flatmark/board.py --check`).
-7. **Lint Tickets (Mandatory)**:
+     *(or `python3 flatmark/flatmark.py obsolete <ID>` if retiring without implementation)*.
+6. **Lint Tickets (Mandatory)**:
    - Run the ticket linter to ensure all tickets, frontmatter, and dependencies are valid:
      ```bash
      python3 flatmark/flatmark.py lint
      ```
      *(Or `python3 flatmark/flatmark.py lint --fix` to auto-resolve safe issues).*
    - Confirm all lint issues are resolved and exit code is 0 before committing.
-8. **Commit Changes**:
+7. **Commit Changes**:
    - Include the ticket ID in the commit message:
      ```bash
      git commit -m "[#<ID>] Fix bug or implement feature"

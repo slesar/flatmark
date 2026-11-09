@@ -1597,5 +1597,331 @@ class TestBoardUX(unittest.TestCase):
         self.assertTrue(pos_t2 < pos_t1)
 
 
+class TestUnifiedCLI(unittest.TestCase):
+    """Test unified flatmark CLI commands (F3)."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.root_path = Path(self.test_dir)
+        self.tickets_dir = self.root_path / "tickets"
+        self.archive_dir = self.root_path / "archive"
+        self.board_path = self.root_path / "BOARD.md"
+        self.version_path = self.root_path / "VERSION"
+        self.tickets_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.version_path.write_text("0.2.0\n", encoding="utf-8")
+        self.flatmark_script = os.path.join(SRC_DIR, "flatmark.py")
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_new_command_mutates_and_regenerates_board(self):
+        proc = subprocess.run(
+            [
+                sys.executable,
+                self.flatmark_script,
+                "new",
+                "F",
+                "Feature",
+                "One",
+                "--priority",
+                "P1",
+                "--parent",
+                "F0",
+                "--blocked-by",
+                "B1",
+                "--root",
+                str(self.root_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Created ticket: F1", proc.stdout)
+
+        ticket_file = self.tickets_dir / "F1.md"
+        self.assertTrue(ticket_file.is_file())
+        content = ticket_file.read_text(encoding="utf-8")
+        self.assertIn("id: F1", content)
+        self.assertIn("priority: P1", content)
+        self.assertIn("parent: F0", content)
+        self.assertIn("blocked by: B1", content)
+        self.assertIn("# Feature One", content)
+
+        # Mutating command automatically regenerates BOARD.md
+        self.assertTrue(self.board_path.is_file())
+        board_content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("[F1] Feature One", board_content)
+
+    def test_start_command_mutates_and_regenerates_board(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P2\nstatus: Todo\n---\n# Task 1\n",
+            encoding="utf-8",
+        )
+        board.update_board(root=self.root_path)
+
+        proc = subprocess.run(
+            [sys.executable, self.flatmark_script, "start", "T1", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Started T1: status set to In Progress.", proc.stdout)
+
+        content = (self.tickets_dir / "T1.md").read_text(encoding="utf-8")
+        self.assertIn("status: In Progress", content)
+
+        board_content = self.board_path.read_text(encoding="utf-8")
+        self.assertIn("🔄 In Progress", board_content)
+
+    def test_done_command_mutates_and_regenerates_board(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P2\nstatus: In Progress\n---\n# Task 1\n",
+            encoding="utf-8",
+        )
+        board.update_board(root=self.root_path)
+
+        proc = subprocess.run(
+            [sys.executable, self.flatmark_script, "done", "T1", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Completed T1: status set to Done and moved to archive.", proc.stdout)
+
+        self.assertFalse((self.tickets_dir / "T1.md").exists())
+        archived_file = self.archive_dir / "T1.md"
+        self.assertTrue(archived_file.is_file())
+        self.assertIn("status: Done", archived_file.read_text(encoding="utf-8"))
+
+        board_content = self.board_path.read_text(encoding="utf-8")
+        self.assertNotIn("[T1]", board_content)
+
+    def test_obsolete_command_mutates_and_regenerates_board(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P2\nstatus: Todo\n---\n# Task 1\n",
+            encoding="utf-8",
+        )
+        board.update_board(root=self.root_path)
+
+        proc = subprocess.run(
+            [sys.executable, self.flatmark_script, "obsolete", "T1", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Retired T1: status set to Obsolete and moved to archive.", proc.stdout)
+
+        self.assertFalse((self.tickets_dir / "T1.md").exists())
+        archived_file = self.archive_dir / "T1.md"
+        self.assertTrue(archived_file.is_file())
+        self.assertIn("status: Obsolete", archived_file.read_text(encoding="utf-8"))
+
+        board_content = self.board_path.read_text(encoding="utf-8")
+        self.assertNotIn("[T1]", board_content)
+
+    def test_board_command_and_check(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\nstatus: Todo\n---\n# Task 1\n", encoding="utf-8"
+        )
+        proc = subprocess.run(
+            [sys.executable, self.flatmark_script, "board", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(self.board_path.is_file())
+
+        proc_check = subprocess.run(
+            [sys.executable, self.flatmark_script, "board", "--check", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_check.returncode, 0)
+        self.assertIn("is up to date", proc_check.stdout)
+
+    def test_list_command_filters_and_json(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P1\nstatus: Todo\n---\n# Task 1\n", encoding="utf-8"
+        )
+        (self.tickets_dir / "T2.md").write_text(
+            "---\nid: T2\npriority: P0\nstatus: In Progress\n---\n# Task 2\n", encoding="utf-8"
+        )
+        (self.archive_dir / "T3.md").write_text(
+            "---\nid: T3\npriority: P2\nstatus: Done\n---\n# Task 3\n", encoding="utf-8"
+        )
+
+        # List all active (text table)
+        proc = subprocess.run(
+            [sys.executable, self.flatmark_script, "list", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("T1", proc.stdout)
+        self.assertIn("T2", proc.stdout)
+        self.assertNotIn("T3", proc.stdout)
+
+        # Filter by status
+        proc_prog = subprocess.run(
+            [sys.executable, self.flatmark_script, "list", "--status", "in progress", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_prog.returncode, 0)
+        self.assertIn("T2", proc_prog.stdout)
+        self.assertNotIn("T1", proc_prog.stdout)
+
+        # Filter by priority
+        proc_p1 = subprocess.run(
+            [sys.executable, self.flatmark_script, "list", "--priority", "P1", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_p1.returncode, 0)
+        self.assertIn("T1", proc_p1.stdout)
+        self.assertNotIn("T2", proc_p1.stdout)
+
+        # List --json
+        proc_json = subprocess.run(
+            [sys.executable, self.flatmark_script, "list", "--json", "--all", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_json.returncode, 0)
+        data = json.loads(proc_json.stdout)
+        self.assertEqual(len(data), 3)
+        self.assertEqual(data[0]["id"], "T2")  # P0 first
+        self.assertEqual(data[0]["priority"], "P0")
+        self.assertEqual(data[0]["status"], "In Progress")
+        self.assertFalse(data[0]["archived"])
+        self.assertTrue(any(t["id"] == "T3" and t["archived"] for t in data))
+
+    def test_next_command_unblocked_and_json(self):
+        # T1: Todo, P2
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P2\nstatus: Todo\n---\n# Task 1\n", encoding="utf-8"
+        )
+        # T2: Todo, P0, blocked by active T1 (unresolved)
+        (self.tickets_dir / "T2.md").write_text(
+            "---\nid: T2\npriority: P0\nstatus: Todo\nblocked by: T1\n---\n# Critical Task\n", encoding="utf-8"
+        )
+        # T3: Todo, P1, unblocked
+        (self.tickets_dir / "T3.md").write_text(
+            "---\nid: T3\npriority: P1\nstatus: Todo\n---\n# High Task\n", encoding="utf-8"
+        )
+
+        # next should pick T3 (P1) because T2 (P0) is blocked by active T1
+        proc_next = subprocess.run(
+            [sys.executable, self.flatmark_script, "next", "--json", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_next.returncode, 0)
+        t3_data = json.loads(proc_next.stdout)
+        self.assertEqual(t3_data["id"], "T3")
+        self.assertEqual(t3_data["priority"], "P1")
+
+        # Now archive T1 (marking it Done)
+        (self.archive_dir / "T1.md").write_text(
+            "---\nid: T1\nstatus: Done\n---\n# Task 1\n", encoding="utf-8"
+        )
+        (self.tickets_dir / "T1.md").unlink()
+
+        # Now T2 is unblocked and has higher priority (P0) than T3 (P1)
+        proc_next2 = subprocess.run(
+            [sys.executable, self.flatmark_script, "next", "--json", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_next2.returncode, 0)
+        t2_data = json.loads(proc_next2.stdout)
+        self.assertEqual(t2_data["id"], "T2")
+        self.assertEqual(t2_data["priority"], "P0")
+
+        # Empty backlog test
+        (self.tickets_dir / "T2.md").unlink()
+        (self.tickets_dir / "T3.md").unlink()
+        proc_empty = subprocess.run(
+            [sys.executable, self.flatmark_script, "next", "--json", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_empty.returncode, 0)
+        self.assertEqual(proc_empty.stdout.strip(), "null")
+
+    def test_show_command_text_and_json(self):
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\npriority: P1\nstatus: In Progress\nparent: F0\nblocked by: B1\n---\n# Task 1 Title\n\nTask body description.\n",
+            encoding="utf-8",
+        )
+
+        # Text mode
+        proc_text = subprocess.run(
+            [sys.executable, self.flatmark_script, "show", "T1", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_text.returncode, 0)
+        self.assertIn("ID:          T1", proc_text.stdout)
+        self.assertIn("Title:       Task 1 Title", proc_text.stdout)
+        self.assertIn("Status:      In Progress", proc_text.stdout)
+        self.assertIn("Task body description.", proc_text.stdout)
+
+        # JSON mode
+        proc_json = subprocess.run(
+            [sys.executable, self.flatmark_script, "show", "T1", "--json", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_json.returncode, 0)
+        data = json.loads(proc_json.stdout)
+        self.assertEqual(data["id"], "T1")
+        self.assertEqual(data["title"], "Task 1 Title")
+        self.assertEqual(data["priority"], "P1")
+        self.assertEqual(data["status"], "In Progress")
+        self.assertEqual(data["parent"], "F0")
+        self.assertEqual(data["blocked_by"], "B1")
+        self.assertIn("Task body description.", data["body"])
+
+        # Nonexistent ticket
+        proc_missing = subprocess.run(
+            [sys.executable, self.flatmark_script, "show", "NONEXISTENT", "--root", str(self.root_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_missing.returncode, 1)
+        self.assertIn("Error:", proc_missing.stderr)
+
+    def test_command_help_and_usage_errors(self):
+        # Unknown command exits 2
+        proc_unknown = subprocess.run(
+            [sys.executable, self.flatmark_script, "invalid_cmd"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc_unknown.returncode, 2)
+        self.assertIn("Unknown command", proc_unknown.stderr)
+
+        # Subcommand missing required arguments exits 2
+        for cmd in ["start", "done", "obsolete", "show"]:
+            proc_missing = subprocess.run(
+                [sys.executable, self.flatmark_script, cmd],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc_missing.returncode, 2)
+
+        # Subcommand --help exits 0
+        for cmd in ["new", "start", "done", "obsolete", "list", "next", "show", "board", "lint"]:
+            proc_help = subprocess.run(
+                [sys.executable, self.flatmark_script, cmd, "--help"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc_help.returncode, 0)
+            self.assertIn("usage:", proc_help.stdout.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

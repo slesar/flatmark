@@ -2,11 +2,15 @@
 """
 FlatMark CLI: Unified entry point for FlatMark ticket management.
 """
+import argparse
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from typing import Any
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 if base_dir not in sys.path:
@@ -432,18 +436,458 @@ def lint_main(argv=None):
     return 0
 
 
+def parse_ticket_file(
+    file_path: Path, base_dir: Path | None = None
+) -> dict[str, Any]:
+    """Parse a ticket Markdown file into a dictionary representation."""
+    content = file_path.read_text(encoding="utf-8")
+    yaml_data = board.parse_yaml(content)
+
+    title = ""
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# ") and not line.startswith("## "):
+            title = line[2:].strip()
+            break
+
+    body = ""
+    m = re.match(r"^---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|$)(.*)", content, re.DOTALL)
+    if m:
+        body = m.group(1).strip()
+    else:
+        body = content.strip()
+
+    tid = yaml_data.get("id") or file_path.stem
+    priority = yaml_data.get("priority", "P2").strip()
+    status = yaml_data.get("status", "Todo").strip()
+    parent = yaml_data.get("parent", "").strip() or None
+    blocked_by = yaml_data.get("blocked by", "").strip() or None
+
+    is_archived = file_path.parent.name == "archive"
+
+    if base_dir:
+        try:
+            rel_path = str(file_path.relative_to(base_dir))
+        except ValueError:
+            rel_path = f"{file_path.parent.name}/{file_path.name}"
+    else:
+        rel_path = f"{file_path.parent.name}/{file_path.name}"
+
+    return {
+        "id": tid,
+        "title": title,
+        "status": status,
+        "priority": priority,
+        "parent": parent,
+        "blocked_by": blocked_by,
+        "archived": is_archived,
+        "path": rel_path,
+        "body": body,
+    }
+
+
+def find_ticket_file(
+    ticket_id: str, root: Path | str | None = None
+) -> tuple[Path | None, bool]:
+    """Find a ticket file by its ID or stem in tickets/ or archive/.
+
+    Returns (file_path, is_archived). Active tickets take precedence.
+    """
+    _, tickets_dir, archive_dir, _, _ = board._resolve_paths(root)
+
+    # Check tickets_dir first
+    if tickets_dir.is_dir():
+        direct = tickets_dir / f"{ticket_id}.md"
+        if direct.is_file():
+            return direct, False
+        for f in tickets_dir.glob("*.md"):
+            if f.stem.lower() == ticket_id.lower():
+                return f, False
+            try:
+                data = board.parse_yaml(f.read_text(encoding="utf-8"))
+                if data.get("id", "").strip().lower() == ticket_id.lower():
+                    return f, False
+            except OSError:
+                pass
+
+    # Check archive_dir
+    if archive_dir.is_dir():
+        direct = archive_dir / f"{ticket_id}.md"
+        if direct.is_file():
+            return direct, True
+        for f in archive_dir.glob("*.md"):
+            if f.stem.lower() == ticket_id.lower():
+                return f, True
+            try:
+                data = board.parse_yaml(f.read_text(encoding="utf-8"))
+                if data.get("id", "").strip().lower() == ticket_id.lower():
+                    return f, True
+            except OSError:
+                pass
+
+    return None, False
+
+
+def set_ticket_status_in_content(content: str, new_status: str) -> str:
+    """Update or insert status in the YAML frontmatter of ticket content."""
+    m = re.match(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", content, re.DOTALL)
+    if not m:
+        return f"---\nstatus: {new_status}\n---\n{content}"
+
+    yaml_block = m.group(1)
+    rest_of_file = content[m.end():]
+    lines = yaml_block.splitlines()
+    status_updated = False
+    new_lines = []
+    for line in lines:
+        if re.match(r"^\s*status\s*:", line, re.IGNORECASE):
+            new_lines.append(f"status: {new_status}")
+            status_updated = True
+        else:
+            new_lines.append(line)
+    if not status_updated:
+        new_lines.append(f"status: {new_status}")
+
+    new_yaml = "\n".join(new_lines)
+    return f"---\n{new_yaml}\n---\n{rest_of_file}"
+
+
+def cmd_new(argv: list[str], root: Path | str | None = None) -> int:
+    """Create a new ticket template and regenerate board."""
+    parser = argparse.ArgumentParser(
+        prog="flatmark new",
+        description="Create a new FlatMark ticket template.",
+        usage="flatmark new [T|B|F|S|R|D] <Ticket Title> [--parent ID] [--blocked-by ID] [--priority P] [--scheme sequential|random]",
+    )
+    parser.add_argument("prefix", nargs="?", default=None, help="Ticket prefix: T, B, F, S, R, D")
+    parser.add_argument("title", nargs="*", default=[], help="Ticket title")
+    parser.add_argument("--parent", default=None, help="Parent ticket ID")
+    parser.add_argument("--blocked-by", default=None, help="Blocking ticket ID(s)")
+    parser.add_argument("--priority", default="P2", help="Priority (P0, P1, P2, P3)")
+    parser.add_argument("--scheme", default="sequential", help="ID generation scheme (sequential, random)")
+    parser.add_argument("--random", action="store_const", dest="scheme", const="random", help="Shortcut for --scheme random")
+    parser.add_argument("--sequential", action="store_const", dest="scheme", const="sequential", help="Shortcut for --scheme sequential")
+
+    args = parser.parse_args(argv)
+    if not args.prefix:
+        parser.print_usage(file=sys.stderr)
+        return 2
+
+    prefix = args.prefix.strip().upper()
+    if prefix not in new.VALID_PREFIXES:
+        print(
+            "Error: Prefix must be T (Task), or B (Bug), F (Feature), S (Spike), R (Release), D (Documentation)",
+            file=sys.stderr,
+        )
+        return 2
+
+    title = " ".join(args.title) if args.title else "New Ticket"
+    try:
+        next_id, file_path = new.create_ticket(
+            prefix=prefix,
+            title=title,
+            scheme=args.scheme,
+            root=root,
+            priority=args.priority,
+            parent=args.parent,
+            blocked_by=args.blocked_by,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+    except FileExistsError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except (OSError, RuntimeError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Created ticket: {next_id} ({file_path})")
+    return 0
+
+
+def cmd_start(ticket_id: str, root: Path | str | None = None) -> int:
+    """Mark ticket as In Progress and regenerate board."""
+    r_base, r_tickets, _, _, _ = board._resolve_paths(root)
+    file_path, is_archived = find_ticket_file(ticket_id, root=r_base)
+    if file_path is None:
+        print(f"Error: Ticket '{ticket_id}' not found.", file=sys.stderr)
+        return 1
+
+    content = file_path.read_text(encoding="utf-8")
+    new_content = set_ticket_status_in_content(content, "In Progress")
+
+    target_path = r_tickets / file_path.name
+    if is_archived:
+        r_tickets.mkdir(parents=True, exist_ok=True)
+        new.atomic_write(target_path, new_content)
+        file_path.unlink()
+    else:
+        new.atomic_write(file_path, new_content)
+
+    board.update_board(root=r_base)
+    print(f"Started {ticket_id}: status set to In Progress.")
+    return 0
+
+
+def cmd_done(ticket_id: str, root: Path | str | None = None) -> int:
+    """Mark ticket as Done, move to archive/, and regenerate board."""
+    r_base, _, r_archive, _, _ = board._resolve_paths(root)
+    file_path, is_archived = find_ticket_file(ticket_id, root=r_base)
+    if file_path is None:
+        print(f"Error: Ticket '{ticket_id}' not found.", file=sys.stderr)
+        return 1
+
+    content = file_path.read_text(encoding="utf-8")
+    new_content = set_ticket_status_in_content(content, "Done")
+
+    r_archive.mkdir(parents=True, exist_ok=True)
+    target_path = r_archive / file_path.name
+    new.atomic_write(target_path, new_content)
+    if not is_archived and file_path.resolve() != target_path.resolve():
+        file_path.unlink()
+
+    board.update_board(root=r_base)
+    print(f"Completed {ticket_id}: status set to Done and moved to archive.")
+    return 0
+
+
+def cmd_obsolete(ticket_id: str, root: Path | str | None = None) -> int:
+    """Mark ticket as Obsolete, move to archive/, and regenerate board."""
+    r_base, _, r_archive, _, _ = board._resolve_paths(root)
+    file_path, is_archived = find_ticket_file(ticket_id, root=r_base)
+    if file_path is None:
+        print(f"Error: Ticket '{ticket_id}' not found.", file=sys.stderr)
+        return 1
+
+    content = file_path.read_text(encoding="utf-8")
+    new_content = set_ticket_status_in_content(content, "Obsolete")
+
+    r_archive.mkdir(parents=True, exist_ok=True)
+    target_path = r_archive / file_path.name
+    new.atomic_write(target_path, new_content)
+    if not is_archived and file_path.resolve() != target_path.resolve():
+        file_path.unlink()
+
+    board.update_board(root=r_base)
+    print(f"Retired {ticket_id}: status set to Obsolete and moved to archive.")
+    return 0
+
+
+def cmd_board(argv: list[str], root: Path | str | None = None) -> int:
+    """Regenerate or verify BOARD.md ticket board."""
+    if "--help" in argv or "-h" in argv:
+        print("Usage: flatmark board [--check]")
+        print("\nRegenerate or verify BOARD.md ticket board.")
+        print("\nOptions:")
+        print("  --check, -c    Check if BOARD.md is up to date without modifying it")
+        print("  -h, --help     Show this help message")
+        return 0
+
+    check_mode = ("--check" in argv or "-c" in argv)
+    success = board.update_board(root=root, check=check_mode)
+    return 0 if success else 1
+
+
+def cmd_show(argv: list[str], root: Path | str | None = None) -> int:
+    """Display details of a ticket in text or JSON format."""
+    parser = argparse.ArgumentParser(
+        prog="flatmark show",
+        description="Display details of a ticket.",
+        usage="flatmark show <id> [--json]",
+    )
+    parser.add_argument("id", nargs="?", default=None, help="Ticket ID")
+    parser.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    args = parser.parse_args(argv)
+    if not args.id:
+        parser.print_usage(file=sys.stderr)
+        return 2
+
+    r_base, _, _, _, _ = board._resolve_paths(root)
+    file_path, _ = find_ticket_file(args.id, root=r_base)
+    if file_path is None:
+        print(f"Error: Ticket '{args.id}' not found.", file=sys.stderr)
+        return 1
+
+    ticket_data = parse_ticket_file(file_path, base_dir=r_base)
+    if args.json:
+        print(json.dumps(ticket_data, indent=2))
+    else:
+        print(f"ID:          {ticket_data['id']}")
+        print(f"Title:       {ticket_data['title']}")
+        print(f"Status:      {ticket_data['status']}")
+        print(f"Priority:    {ticket_data['priority']}")
+        print(f"Parent:      {ticket_data['parent'] or 'none'}")
+        print(f"Blocked by:  {ticket_data['blocked_by'] or 'none'}")
+        print(f"Path:        {ticket_data['path']}")
+        print("")
+        print(ticket_data["body"])
+    return 0
+
+
+def cmd_list(argv: list[str], root: Path | str | None = None) -> int:
+    """Query backlog tickets without parsing Markdown."""
+    parser = argparse.ArgumentParser(
+        prog="flatmark list",
+        description="Query tickets in backlog without parsing Markdown.",
+        usage="flatmark list [--status S] [--priority P] [--all] [--json]",
+    )
+    parser.add_argument("--status", default=None, help="Filter by status (e.g. Todo, 'In Progress', Done, Obsolete)")
+    parser.add_argument("--priority", default=None, help="Filter by priority (P0, P1, P2, P3)")
+    parser.add_argument("--all", action="store_true", help="Include archived tickets")
+    parser.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    args = parser.parse_args(argv)
+    r_base, r_tickets, r_archive, _, _ = board._resolve_paths(root)
+
+    include_archive = args.all or (
+        args.status is not None and args.status.strip().lower() in ("done", "obsolete")
+    )
+
+    tickets: list[dict[str, Any]] = []
+
+    if r_tickets.is_dir():
+        for f in sorted(r_tickets.glob("*.md"), key=lambda p: board.natural_sort_key(p.name)):
+            try:
+                t = parse_ticket_file(f, base_dir=r_base)
+                tickets.append(t)
+            except OSError:
+                pass
+
+    if include_archive and r_archive.is_dir():
+        for f in sorted(r_archive.glob("*.md"), key=lambda p: board.natural_sort_key(p.name)):
+            try:
+                t = parse_ticket_file(f, base_dir=r_base)
+                tickets.append(t)
+            except OSError:
+                pass
+
+    if args.status:
+        target_status = args.status.strip().lower()
+        tickets = [t for t in tickets if t["status"].lower() == target_status]
+
+    if args.priority:
+        target_pri = args.priority.strip().upper()
+        tickets = [t for t in tickets if t["priority"].upper() == target_pri]
+
+    pri_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    tickets.sort(
+        key=lambda t: (
+            pri_order.get(t["priority"].upper(), 99),
+            board.natural_sort_key(t["id"]),
+        )
+    )
+
+    if args.json:
+        list_payload = [
+            {
+                "id": t["id"],
+                "title": t["title"],
+                "status": t["status"],
+                "priority": t["priority"],
+                "parent": t["parent"],
+                "blocked_by": t["blocked_by"],
+                "archived": t["archived"],
+                "path": t["path"],
+            }
+            for t in tickets
+        ]
+        print(json.dumps(list_payload, indent=2))
+    else:
+        if not tickets:
+            print("No tickets found.")
+            return 0
+        header = f"{'ID':<8} {'PRIORITY':<9} {'STATUS':<13} {'BLOCKED BY':<12} {'TITLE'}"
+        print(header)
+        print("-" * max(len(header), 60))
+        for t in tickets:
+            blocked = t["blocked_by"] or ""
+            print(f"{t['id']:<8} {t['priority']:<9} {t['status']:<13} {blocked:<12} {t['title']}")
+
+    return 0
+
+
+def cmd_next(argv: list[str], root: Path | str | None = None) -> int:
+    """Find the highest-priority unblocked Todo ticket."""
+    parser = argparse.ArgumentParser(
+        prog="flatmark next",
+        description="Find the highest-priority unblocked Todo ticket.",
+        usage="flatmark next [--json]",
+    )
+    parser.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    args = parser.parse_args(argv)
+    r_base, r_tickets, r_archive, _, _ = board._resolve_paths(root)
+
+    if not r_tickets.is_dir():
+        if args.json:
+            print("null")
+        else:
+            print("No unblocked Todo tickets found.")
+        return 0
+
+    ticket_locations = board.find_ticket_locations(r_tickets, r_archive)
+
+    candidates: list[dict[str, Any]] = []
+    for f in r_tickets.glob("*.md"):
+        try:
+            t = parse_ticket_file(f, base_dir=r_base)
+            if t["status"].lower() != "todo":
+                continue
+            blocked_by = t["blocked_by"] or ""
+            if board._has_unresolved_blockers(blocked_by, ticket_locations):
+                continue
+            candidates.append(t)
+        except OSError:
+            pass
+
+    if not candidates:
+        if args.json:
+            print("null")
+        else:
+            print("No unblocked Todo tickets found.")
+        return 0
+
+    pri_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    candidates.sort(
+        key=lambda t: (
+            pri_order.get(t["priority"].upper(), 99),
+            board.natural_sort_key(t["id"]),
+        )
+    )
+
+    chosen = candidates[0]
+    if args.json:
+        print(json.dumps(chosen, indent=2))
+    else:
+        print("Next available ticket:")
+        print(f"  ID:          {chosen['id']}")
+        print(f"  Priority:    {chosen['priority']}")
+        print(f"  Title:       {chosen['title']}")
+        print(f"  Path:        {chosen['path']}")
+
+    return 0
+
+
 def print_help():
     print("""Usage: python3 flatmark.py <command> [options]
 
 Commands:
-  lint [--fix]    Validate ticket frontmatter, metadata, dependencies and status
-  check [--fix]   Alias for 'lint'
-  board [--check] Regenerate or check BOARD.md freshness
-  new [args...]   Create a new ticket
+  new <prefix> <title>    Create a new ticket template
+  start <id>              Set ticket status to In Progress and update board
+  done <id>               Set ticket status to Done, move to archive/, and update board
+  obsolete <id>           Set ticket status to Obsolete, move to archive/, and update board
+  board [--check]         Regenerate or verify BOARD.md ticket board
+  list [options]          Query tickets without parsing Markdown
+  next [--json]           Find the highest-priority unblocked Todo ticket
+  show <id> [--json]      Display ticket details
+  lint [--fix]            Validate ticket frontmatter, metadata, dependencies and status
+  check [--fix]           Alias for 'lint'
 
 Options:
-  -v, --version   Show FlatMark version
-  -h, --help      Show this help message
+  -v, --version           Show FlatMark version
+  -h, --help              Show this help message
 """)
 
 
@@ -462,16 +906,43 @@ def main(argv=None):
     command = argv[0].lower()
     sub_args = argv[1:]
 
+    root = None
+    if "--root" in sub_args:
+        idx = sub_args.index("--root")
+        if idx + 1 < len(sub_args):
+            root = Path(sub_args[idx + 1])
+            sub_args = sub_args[:idx] + sub_args[idx + 2 :]
+
     if command in ("lint", "check"):
         return lint_main(sub_args)
     elif command == "board":
-        check_mode = ("--check" in sub_args or "-c" in sub_args)
-        success = board.update_board(check=check_mode)
-        return 0 if success else 1
+        return cmd_board(sub_args, root=root)
     elif command == "new":
-        new_script = os.path.join(base_dir, "new.py")
-        proc = subprocess.run([sys.executable, new_script] + sub_args)
-        return proc.returncode
+        return cmd_new(sub_args, root=root)
+    elif command == "start":
+        if not sub_args or sub_args[0] in ("-h", "--help"):
+            print("Usage: flatmark start <ticket_id>")
+            print("\nSet ticket status to In Progress and regenerate the board.")
+            return 0 if sub_args and sub_args[0] in ("-h", "--help") else 2
+        return cmd_start(sub_args[0], root=root)
+    elif command == "done":
+        if not sub_args or sub_args[0] in ("-h", "--help"):
+            print("Usage: flatmark done <ticket_id>")
+            print("\nSet ticket status to Done, move to archive/, and regenerate the board.")
+            return 0 if sub_args and sub_args[0] in ("-h", "--help") else 2
+        return cmd_done(sub_args[0], root=root)
+    elif command == "obsolete":
+        if not sub_args or sub_args[0] in ("-h", "--help"):
+            print("Usage: flatmark obsolete <ticket_id>")
+            print("\nSet ticket status to Obsolete, move to archive/, and regenerate the board.")
+            return 0 if sub_args and sub_args[0] in ("-h", "--help") else 2
+        return cmd_obsolete(sub_args[0], root=root)
+    elif command == "list":
+        return cmd_list(sub_args, root=root)
+    elif command == "next":
+        return cmd_next(sub_args, root=root)
+    elif command == "show":
+        return cmd_show(sub_args, root=root)
     else:
         print(f"Error: Unknown command '{command}'.", file=sys.stderr)
         print_help()
