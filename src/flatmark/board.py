@@ -387,7 +387,7 @@ def _has_unresolved_blockers(
     """Check if any blocker in blocked_by is unresolved (active or missing)."""
     if not blocked_by:
         return False
-    blockers = [b.strip() for b in blocked_by.split(",") if b.strip()]
+    blockers = [b.strip().strip("'\"") for b in blocked_by.split(",") if b.strip().strip("'\"")]
     if not blockers:
         return False
     for b in blockers:
@@ -439,7 +439,7 @@ def format_blocked_by_cell(
     if not blocked_by:
         return ""
 
-    blocker_keys = [b.strip() for b in blocked_by.split(",") if b.strip()]
+    blocker_keys = [b.strip().strip("'\"") for b in blocked_by.split(",") if b.strip().strip("'\"")]
     rendered_blockers: list[str] = []
     for b in blocker_keys:
         if b in ticket_locations:

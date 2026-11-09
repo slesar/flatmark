@@ -168,7 +168,7 @@ FlatMark parses optional relation fields in frontmatter:
 
 - `parent`: Establishes parent-child relationships, rendering visual tree
   branches (`├──`, `└──`) on the board.
-- `blocked by`: Links to a blocking ticket ID.
+- `blocked by`: Links to blocking ticket ID(s). Supports a single ID or a comma-separated list of IDs (e.g. `blocked by: T2, T3`). Each blocker is rendered as its own distinct link on the board.
 
 ```markdown
 ---
@@ -176,7 +176,7 @@ id: B1
 priority: P0
 status: Todo
 parent: F1
-blocked by: T2
+blocked by: T2, T3
 ---
 # Fix token expiry issue
 ...

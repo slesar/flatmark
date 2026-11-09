@@ -1466,6 +1466,48 @@ class TestBlockerLinks(unittest.TestCase):
         self.assertIn("[B1](tickets/B1.md), ~~[B2](archive/B2.md)~~, MISSING", content)
         self.assertIn("Warning: Blocker ticket 'MISSING' not found", stderr_buf.getvalue())
 
+    def test_regression_b4_one_two_and_three_blockers(self):
+        # B4 regression: blocked by accepts comma-separated list of 1, 2, and 3 blockers
+        # Each blocker must be rendered as an individual link separated by ", "
+        # and must never produce broken composite links like "[B1, B2](tickets/B1, B2.md)"
+        (self.tickets_dir / "B1.md").write_text(
+            "---\nid: B1\nstatus: Todo\n---\n# Bug 1\n", encoding="utf-8"
+        )
+        (self.tickets_dir / "B2.md").write_text(
+            "---\nid: B2\nstatus: Todo\n---\n# Bug 2\n", encoding="utf-8"
+        )
+        (self.tickets_dir / "B3.md").write_text(
+            "---\nid: B3\nstatus: Todo\n---\n# Bug 3\n", encoding="utf-8"
+        )
+
+        # 1 blocker
+        (self.tickets_dir / "T1.md").write_text(
+            "---\nid: T1\nstatus: Todo\nblocked by: B1\n---\n# One Blocker\n", encoding="utf-8"
+        )
+        # 2 blockers
+        (self.tickets_dir / "T2.md").write_text(
+            "---\nid: T2\nstatus: Todo\nblocked by: B1, B2\n---\n# Two Blockers\n", encoding="utf-8"
+        )
+        # 3 blockers
+        (self.tickets_dir / "T3.md").write_text(
+            "---\nid: T3\nstatus: Todo\nblocked by: B1, B2, B3\n---\n# Three Blockers\n", encoding="utf-8"
+        )
+
+        board.update_board(root=self.root_path)
+        content = self.board_path.read_text(encoding="utf-8")
+
+        # Verify 1 blocker link
+        self.assertIn("[B1](tickets/B1.md)", content)
+        # Verify 2 blocker individual links
+        self.assertIn("[B1](tickets/B1.md), [B2](tickets/B2.md)", content)
+        # Verify 3 blocker individual links
+        self.assertIn("[B1](tickets/B1.md), [B2](tickets/B2.md), [B3](tickets/B3.md)", content)
+
+        # Ensure no broken composite links exist anywhere
+        self.assertNotIn("[B1, B2]", content)
+        self.assertNotIn("[B1, B2, B3]", content)
+        self.assertNotIn("tickets/B1, B2", content)
+
 
 class TestBoardUX(unittest.TestCase):
     """Tests for board UX enhancements (F5): status icons, resolved blockers, summary line, grouping/sorting."""

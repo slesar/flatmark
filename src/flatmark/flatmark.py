@@ -373,7 +373,7 @@ def lint_tickets(flatmark_dir=None, fix=False, print_fn=print):
         if "blocked by" in yaml_data and yaml_data["blocked by"]:
             blocked_val = yaml_data["blocked by"]
             b_line = item["field_lines"].get("blocked by", 1)
-            blockers = [b.strip() for b in blocked_val.split(",") if b.strip()]
+            blockers = [b.strip().strip("'\"") for b in str(blocked_val).split(",") if b.strip().strip("'\"")]
             for b in blockers:
                 if b == tid:
                     issues.append(LintIssue(rel_path, b_line, "ticket cannot block itself"))

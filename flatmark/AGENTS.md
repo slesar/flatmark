@@ -52,9 +52,10 @@ Every ticket in `tickets/` MUST begin with a YAML frontmatter block enclosed bet
 | `priority` | No | `P0`, `P1`, `P2`, `P3` | `P2` | Urgency level: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low). |
 | `status` | No | `Todo`, `In Progress`, `Done`, `Obsolete` | `Todo` | Current ticket lifecycle status. |
 | `parent` | No | Existing ticket ID (e.g. `F2`) | *(none)* | Parent ticket ID for visual hierarchical tree nesting (`├──`, `└──`). |
-| `blocked by` | No | Existing ticket ID (e.g. `T1`) | *(none)* | Blocking ticket dependency link. |
+| `blocked by` | No | Comma-separated ticket ID(s) (e.g. `T1` or `T1, T2`) | *(none)* | Blocking ticket dependency link(s). Multiple blockers are rendered as individual links separated by `, `. |
 
 ### Frontmatter Notes
+- `blocked by` accepts a single ticket ID or a comma-separated list of IDs (e.g. `blocked by: T1, T2, T3`). Each blocker is rendered as its own distinct link on the board, and resolved blockers (archived) are rendered as struck through (`~~[T1](archive/T1.md)~~`).
 - `board.py` automatically renders `⏳ Todo` on the board for tickets with status `Todo`.
 - Pipe characters (`|`) in titles, statuses, and frontmatter fields are automatically escaped as `\|` when rendered on the board table.
 - Leading/trailing whitespace and newlines in frontmatter values are normalized.

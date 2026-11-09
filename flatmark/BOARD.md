@@ -1,10 +1,9 @@
 # Ticket Board
 
-9 open · 0 in progress · 0 blocked
+8 open · 0 in progress · 0 blocked
 
 | Ticket | Priority | Blocked by | Status |
 | :--- | :---: | :---: | :--- |
-| [[B4] Multiple blockers produce a broken link](tickets/B4.md) | P2 |  | ⏳ Todo |
 | [[B6] Quoted YAML values keep their quotes](tickets/B6.md) | P2 |  | ⏳ Todo |
 | [[D1] Improve README: board sample, field values, positioning](tickets/D1.md) | P2 |  | ⏳ Todo |
 | [[F6] Installer trust: pinned versions, checksums, pipx/uvx](tickets/F6.md) | P2 |  | ⏳ Todo |
