@@ -494,6 +494,86 @@ class TestNewTicket(unittest.TestCase):
         with self.assertRaises(ValueError):
             new.get_next_id("T", scheme="unsupported")
 
+    def test_create_ticket_exclusive_mode_success(self):
+        # B10: ticket creation creates file in exclusive mode
+        tid, path = new.create_ticket("T", "Sample Ticket", root=self.test_dir)
+        self.assertEqual(tid, "T1")
+        self.assertTrue(path.is_file())
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("id: T1", content)
+        self.assertIn("# Sample Ticket", content)
+
+    def test_create_ticket_fails_if_file_already_exists_and_preserves_content(self):
+        # B10: if ticket file already exists, create_ticket fails with FileExistsError and preserves content
+        t1_path = Path(self.tickets_dir) / "T1.md"
+        original_content = "# Pre-existing Ticket Content\nDo not overwrite!"
+        t1_path.write_text(original_content, encoding="utf-8")
+
+        # Mock get_next_id to return "T1" (simulating a race condition or existing file)
+        with patch.object(new, "get_next_id", return_value="T1"):
+            with self.assertRaises(FileExistsError) as cm:
+                new.create_ticket("T", "Duplicate Title", root=self.test_dir)
+            self.assertIn("already exists", str(cm.exception))
+
+        # Ensure the pre-existing file content was preserved completely
+        self.assertEqual(t1_path.read_text(encoding="utf-8"), original_content)
+
+    def test_atomic_write_exclusive_mode(self):
+        # B10: atomic_write with exclusive=True raises FileExistsError on existing destination
+        dest = Path(self.test_dir) / "test_file.md"
+        new.atomic_write(dest, "First write", exclusive=True)
+        self.assertEqual(dest.read_text(encoding="utf-8"), "First write")
+
+        with self.assertRaises(FileExistsError) as cm:
+            new.atomic_write(dest, "Second write", exclusive=True)
+        self.assertIn("already exists", str(cm.exception))
+        # Content unchanged
+        self.assertEqual(dest.read_text(encoding="utf-8"), "First write")
+
+    def test_new_cli_fails_with_clear_error_and_nonzero_exit_when_file_exists(self):
+        # B10: CLI returns non-zero and prints clear error to stderr on FileExistsError
+        t1_path = Path(self.tickets_dir) / "T1.md"
+        original_content = "# Existing Ticket\n"
+        t1_path.write_text(original_content, encoding="utf-8")
+
+        stderr_buf = io.StringIO()
+        with patch.object(new, "get_next_id", return_value="T1"), \
+             patch.object(new, "tickets_dir", self.tickets_dir), \
+             patch.object(new, "base_dir", self.test_dir), \
+             redirect_stderr(stderr_buf):
+            exit_code = new.main(["T", "Race Condition Ticket"])
+
+        self.assertEqual(exit_code, 1)
+        stderr_output = stderr_buf.getvalue()
+        self.assertIn("Error:", stderr_output)
+        self.assertIn("already exists", stderr_output)
+        self.assertEqual(t1_path.read_text(encoding="utf-8"), original_content)
+
+    def test_new_cli_subprocess_file_exists_fails_nonzero(self):
+        # B10: test via subprocess that new.py exits non-zero and prints to stderr if file exists
+        t1_path = Path(self.tickets_dir) / "T1.md"
+        t1_path.write_text("existing", encoding="utf-8")
+
+        code = (
+            "import sys; "
+            "from unittest.mock import patch; "
+            "import new; "
+            "patch.object(new, 'get_next_id', return_value='T1').start(); "
+            "patch.object(new, 'tickets_dir', r'" + self.tickets_dir + "').start(); "
+            "patch.object(new, 'base_dir', r'" + self.test_dir + "').start(); "
+            "sys.exit(new.main(['T', 'Duplicate']))"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": SRC_DIR},
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Error:", proc.stderr)
+        self.assertIn("already exists", proc.stderr)
+        self.assertEqual(t1_path.read_text(encoding="utf-8"), "existing")
+
 
 class TestInstall(unittest.TestCase):
     def setUp(self):

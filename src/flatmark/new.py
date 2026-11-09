@@ -109,10 +109,30 @@ def get_next_id(
 
 
 def atomic_write(
-    destination: Path, content: str, encoding: str = "utf-8"
+    destination: Path,
+    content: str,
+    encoding: str = "utf-8",
+    exclusive: bool = False,
 ) -> None:
-    """Write content to destination path atomically using a temporary file and os.replace."""
+    """Write content to destination path.
+
+    If exclusive is True, creates the file exclusively using mode 'x' to prevent
+    overwriting existing files.
+    Otherwise, writes atomically using a temporary file and os.replace.
+    """
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if exclusive:
+        try:
+            with destination.open("x", encoding=encoding, newline="\n") as f:
+                f.write(content)
+        except FileExistsError:
+            raise FileExistsError(f"Ticket file '{destination}' already exists.")
+        except Exception:
+            if destination.exists():
+                destination.unlink()
+            raise
+        return
+
     temp_file = tempfile.NamedTemporaryFile(
         dir=destination.parent,
         prefix=f".{destination.name}.",
@@ -142,9 +162,10 @@ def create_ticket(
     scheme: str = "sequential",
     root: Path | str | None = None,
 ) -> tuple[str, Path]:
-    """Create a new ticket file atomically and update BOARD.md.
+    """Create a new ticket file in exclusive mode and update BOARD.md.
 
     Raises ValueError if prefix is invalid or scheme is unknown.
+    Raises FileExistsError if the computed ticket file already exists.
     Raises OSError if ticket cannot be written.
     """
     prefix_clean = prefix.strip().upper()
@@ -172,7 +193,7 @@ Acceptance criteria:
 - [ ] Criteria 1
 """
 
-    atomic_write(file_path, content)
+    atomic_write(file_path, content, exclusive=True)
     board.update_board(root=r_base)
     return next_id, file_path
 
@@ -255,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
+    except FileExistsError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     except (OSError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
